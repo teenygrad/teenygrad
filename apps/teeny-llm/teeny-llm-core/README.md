@@ -29,13 +29,13 @@ module.
 
 ```bash
 cargo test -p teeny-llm-core --test test_llm_kernels
-cargo run --release -p teeny-llm-core --example functiongemma -- --model <model folder>
+cargo run --release -p teeny-llm-core --example chat -- --model <model folder>
 ```
 
 > ⚠️ The models are not yet served through `Engine`: `teeny-llm-server` and `teeny-llm-chat`
-> still run `EchoEngine`. Use the `functiongemma` example to chat with FunctionGemma (`--mode chat`,
-> the default) or to see the function calls it picks for one request (`--mode tool --prompt ...`),
-> and `functiongemma_serve` for the weather web demo.
+> still run `EchoEngine`. Use the `chat` example to talk to FunctionGemma: `--mode chat` (the
+> default) in the terminal, `--mode tool --prompt ...` for the function calls it picks for one
+> request, or `--mode serve` for the weather web demo in a browser.
 
 ## License
 

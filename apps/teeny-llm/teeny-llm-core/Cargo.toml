@@ -67,11 +67,7 @@ clap = { workspace = true }
 tokio = { workspace = true }
 
 [[example]]
-name = "functiongemma"
-required-features = ["functiongemma"]
-
-[[example]]
-name = "functiongemma_serve"
+name = "chat"
 required-features = ["functiongemma"]
 
 [[test]]

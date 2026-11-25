@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Packages FunctionGemma's example (teeny-llm-core's `functiongemma`, in chat mode) for a
+# Packages FunctionGemma's example (teeny-llm-core's `chat`, in chat mode) for a
 # RISC-V board (e.g. a SpacemiT K3) and, given a host, copies it there and starts an
 # interactive chat over ssh.
 #
-# The board needs nothing installed beyond glibc: this script cross-compiles the `functiongemma` example for
+# The board needs nothing installed beyond glibc: this script cross-compiles the `chat` example for
 # riscv64gc-unknown-linux-gnu, compiles every kernel here (where teenyc lives) by starting that
 # same binary under qemu-user (the chat compiles its step graphs before reading any input, so it
 # is fed `/quit`), then stages the binary, the kernel cache and the model folder. On the board it
@@ -40,7 +40,7 @@ model=${GEMMA_MODEL_DIR:-$(ls -d "$HOME"/.cache/huggingface/hub/models--google--
 }
 triple=riscv64gc-unknown-linux-gnu
 target_dir=target/riscv64-native
-bin=$target_dir/$triple/release/examples/functiongemma
+bin=$target_dir/$triple/release/examples/chat
 stage=$target_dir/gemma-stage
 cache=$PWD/$target_dir/gemma-kernel-cache
 sysroot=/usr/riscv64-linux-gnu
@@ -52,7 +52,7 @@ qemu=$(command -v qemu-riscv64 || command -v qemu-riscv64-static) || {
 if [[ $skip_build == 0 ]]; then
     CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_LINKER=riscv64-linux-gnu-gcc \
         CARGO_TARGET_DIR=$target_dir \
-        cargo build --release --target $triple -p teeny-llm-core --example functiongemma \
+        cargo build --release --target $triple -p teeny-llm-core --example chat \
         --no-default-features --features functiongemma,riscv
 fi
 

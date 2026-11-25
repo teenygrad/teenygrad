@@ -42,7 +42,7 @@ model=${GEMMA_MODEL_DIR:-$(ls -d "$HOME"/.cache/huggingface/hub/models--google--
 }
 triple=riscv64gc-unknown-linux-gnu
 target_dir=target/riscv64-native
-bin=$target_dir/$triple/release/examples/functiongemma_serve
+bin=$target_dir/$triple/release/examples/chat
 stage=$target_dir/gemma-serve-stage
 # Shared with board-chat.sh: the same model and shapes produce the same kernels.
 cache=$PWD/$target_dir/gemma-kernel-cache
@@ -55,7 +55,7 @@ qemu=$(command -v qemu-riscv64 || command -v qemu-riscv64-static) || {
 if [[ $skip_build == 0 ]]; then
     CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_LINKER=riscv64-linux-gnu-gcc \
         CARGO_TARGET_DIR=$target_dir \
-        cargo build --release --target $triple -p teeny-llm-core --example functiongemma_serve \
+        cargo build --release --target $triple -p teeny-llm-core --example chat \
         --no-default-features --features functiongemma,riscv
 fi
 
@@ -74,7 +74,7 @@ echo "building the kernel cache under qemu (loads the model first; a few minutes
 (
     cd "$stage"
     TEENYC_CACHE_DIR=$cache TEENYC_CAPABILITY=$capability \
-        "$qemu" -cpu max -L $sysroot ./serve --model model --compile-only "${serve_args[@]}"
+        "$qemu" -cpu max -L $sysroot ./serve --mode serve --model model --compile-only "${serve_args[@]}"
 )
 cp -r "$cache" "$stage/kernel-cache"
 echo "staged: $stage ($(du -sh "$stage" | cut -f1))"
@@ -87,4 +87,4 @@ rsync -a --delete --info=progress2 "$stage/" "$host:$remote/"
 printf -v args_q '%q ' "${serve_args[@]}"
 ssh -t "$host" "cd $remote && uname -m && nproc && \
     TEENYC_PATH=/nonexistent/teenyc TEENYC_CACHE_DIR=\$PWD/kernel-cache \
-    TEENYC_CAPABILITY=$capability ./serve --model model $args_q"
+    TEENYC_CAPABILITY=$capability ./serve --mode serve --model model $args_q"

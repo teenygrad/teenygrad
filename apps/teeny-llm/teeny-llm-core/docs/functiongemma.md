@@ -49,7 +49,7 @@ apps/teeny-llm/teeny-llm-core/scripts/functiongemma-board-chat.sh -H board
 
 This:
 
-1. cross-compiles the `functiongemma` example for `riscv64gc-unknown-linux-gnu`;
+1. cross-compiles the `chat` example for `riscv64gc-unknown-linux-gnu`;
 2. compiles every kernel for the K3 by starting that binary under qemu-user (a few minutes the
    first time; later runs reuse `target/riscv64-native/gemma-kernel-cache`);
 3. stages the binary, kernel cache and model (about 560 MB) and rsyncs them to
@@ -209,11 +209,12 @@ kernels compiled (and, for 5, ran) correctly. Kernels are also compiled for the 
 ## On a CUDA machine
 
 ```bash
-cargo run --release -p teeny-llm-core --example functiongemma -- --model <model folder>
+cargo run --release -p teeny-llm-core --example chat -- --model <model folder>
 ```
 
 That is an interactive chat (`--mode chat`, the default). `--mode tool --prompt "..."` answers a
-single tool-calling request instead and prints the function calls the model chooses.
+single tool-calling request instead and prints the function calls the model chooses, and
+`--mode serve` starts the weather web demo on `127.0.0.1:8080`.
 
 ## License
 

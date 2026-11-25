@@ -14,32 +14,53 @@
  * limitations under the License.
  */
 
-//! A web demo: ask FunctionGemma about the weather, and watch it call the tool.
+//! FunctionGemma on teenygrad, on whichever backend the build selects (CUDA, or RISC-V on
+//! a board), in one of three modes:
 //!
 //! ```text
-//! cargo run --release -p teeny-llm-core --example functiongemma_serve -- --model <hf-model-folder>
+//! cargo run --release -p teeny-llm-core --example chat -- --model <hf-model-folder> [--tools tools.json]
+//! cargo run --release -p teeny-llm-core --example chat -- --model <hf-model-folder> \
+//!     --mode tool --prompt "What is the weather in Paris?"
+//! cargo run --release -p teeny-llm-core --example chat -- --model <hf-model-folder> --mode serve
 //! ```
 //!
-//! Serves one page and one endpoint:
+//! **`chat`** (the default) is an interactive conversation in the terminal. Type a request.
+//! When the model calls a demo tool, the chat runs it: `get_weather` asks Open-Meteo (needs
+//! `curl` and internet), `set_timer` counts down and says when it is done, and
+//! `send_message` appends to `~/functiongemma-outbox.txt`. For any other tool, or with
+//! `--manual-tools`, you play the tool: type its result (JSON, or plain text) and the model
+//! answers from it; an empty line skips the call. Commands: `/reset` clears the
+//! conversation, `/quit` exits. Each turn re-renders the whole conversation with the
+//! model's chat template, and the KV cache keeps every token that still matches, so a turn
+//! only processes what is new.
 //!
-//! - `GET /` the page in `assets/functiongemma/index.html`, compiled into the binary.
+//! **`tool`** answers one `--prompt` and prints the function calls the model chooses,
+//! without running them.
+//!
+//! In both of those, `--tools` is a JSON list of OpenAI-style function declarations
+//! (default: the demo tools above).
+//!
+//! **`serve`** is a web demo: ask about the weather in a browser, and watch the model call
+//! the tool while the page paints the city's real sky. It serves one page and one endpoint:
+//!
+//! - `GET /` the page in `examples/assets/functiongemma/index.html`, compiled into the binary.
 //! - `POST /api/chat` takes `{"message": "...", "history": [...]}` and answers with an
 //!   event stream: `token` as the reply is generated, `tool_call` and `tool_result`
 //!   around the weather lookup, `done` with the timings, or `error`.
 //!
-//! The only tool offered is `get_weather` ([`teeny_llm_core::models::functiongemma::tools`]), which reads from
-//! Open-Meteo and writes nothing. The `functiongemma` example's timer and outbox tools are
-//! deliberately not here: this server is meant to face the open internet, where anything
-//! that writes is a liability.
+//! The only tool it offers is `get_weather` ([`teeny_llm_core::models::functiongemma::tools`]),
+//! which reads from Open-Meteo and writes nothing. The timer and outbox tools are
+//! deliberately not offered there: the server is meant to face the open internet, where
+//! anything that writes is a liability. The model is one set of weights and one KV cache,
+//! so the server generates one reply at a time and answers 503 while it is busy rather than
+//! queueing. The conversation lives in the browser and arrives with each request, which
+//! keeps visitors from seeing each other's chats; the cost is that each turn re-renders the
+//! whole conversation, though the KV cache still keeps whatever prefix matches. The server
+//! speaks plain HTTP: put it behind a TLS-terminating reverse proxy before exposing it, and
+//! see `--public-url` for what the page reports to visitors.
 //!
-//! The model is one set of weights and one KV cache, so the server generates one reply at
-//! a time and answers 503 while it is busy rather than queueing. The conversation lives in
-//! the browser and arrives with each request, which keeps visitors from seeing each
-//! other's chats; the cost is that each turn re-renders the whole conversation, though the
-//! KV cache still keeps whatever prefix matches.
-//!
-//! The server speaks plain HTTP. Put it behind a TLS-terminating reverse proxy before
-//! exposing it, and see `--public-url` for what the page reports to visitors.
+//! Decoding is greedy and stops at `<start_function_response>` (the model handing a call
+//! to the host), `<end_of_turn>` or `<eos>`.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -47,7 +68,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use serde_json::{Value, json};
 use teeny_llm_core::models::functiongemma::GemmaConfig;
 use teeny_llm_core::models::functiongemma::chat::{Chat, parse_calls};
@@ -56,7 +77,7 @@ use teeny_llm_core::models::functiongemma::tools;
 use teeny_test::model::runtime;
 
 /// The demo page, compiled in so the board needs no files beside the binary.
-const INDEX_HTML: &str = include_str!("../assets/functiongemma/index.html");
+const INDEX_HTML: &str = include_str!("assets/functiongemma/index.html");
 
 /// Longest question accepted, in bytes. Long prompts are slow on a board, and the context
 /// is small, so this is a kindness to the next visitor as much as a guard.
@@ -69,19 +90,39 @@ const MAX_HISTORY_MESSAGES: usize = 20;
 /// Longest request body accepted, in bytes.
 const MAX_BODY_BYTES: usize = 64 * 1024;
 
+/// What the example does with the model.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+enum Mode {
+    /// An interactive conversation in the terminal that runs the demo tools.
+    Chat,
+    /// One request: print the function calls the model chooses.
+    Tool,
+    /// The weather web demo, served over HTTP.
+    Serve,
+}
+
 #[derive(Parser)]
 struct Args {
     /// The Hugging Face model folder (config.json, model.safetensors, tokenizer.json,
     /// chat_template.jinja, special_tokens_map.json).
     #[arg(long)]
     model: PathBuf,
-    /// Address to listen on. The default is loopback: pass 0.0.0.0:8080 to accept
-    /// connections from the network, and only behind a reverse proxy you trust.
-    #[arg(long, default_value = "127.0.0.1:8080")]
-    listen: String,
-    /// The URL visitors reach this through, shown on the page. Defaults to `--listen`.
+    /// `chat` for a terminal conversation, `tool` for a single request's function calls,
+    /// `serve` for the weather web demo.
+    #[arg(long, value_enum, default_value_t = Mode::Chat)]
+    mode: Mode,
+    /// The request, in `tool` mode.
+    #[arg(long, required_if_eq("mode", "tool"))]
+    prompt: Option<String>,
+    /// In `chat` and `tool` modes, a JSON file with the tool declarations (OpenAI style).
+    /// Defaults to a few demo tools: weather, timer, messaging. `serve` offers only the
+    /// weather tool.
     #[arg(long)]
-    public_url: Option<String>,
+    tools: Option<PathBuf>,
+    /// In `chat` mode, type each tool's result yourself rather than running the demo
+    /// tools for real.
+    #[arg(long)]
+    manual_tools: bool,
     /// An optional system prompt.
     #[arg(long)]
     system: Option<String>,
@@ -94,11 +135,20 @@ struct Args {
     /// Tokens per prompt-processing step.
     #[arg(long, default_value_t = 16)]
     chunk: usize,
-    /// What the page calls the machine it is running on.
+    /// In `serve` mode, the address to listen on. The default is loopback: pass
+    /// 0.0.0.0:8080 to accept connections from the network, and only behind a reverse proxy
+    /// you trust.
+    #[arg(long, default_value = "127.0.0.1:8080")]
+    listen: String,
+    /// In `serve` mode, the URL visitors reach this through, shown on the page. Defaults to
+    /// `--listen`.
+    #[arg(long)]
+    public_url: Option<String>,
+    /// In `serve` mode, what the page calls the machine it is running on.
     #[arg(long, default_value = "SpacemiT K3")]
     board: String,
-    /// Compile the step graphs and exit, without listening. This is how the kernel cache
-    /// is built on a host with teenyc, before the binary is copied to a board that has none.
+    /// Compile the step graphs and exit. This is how the kernel cache is built on a host
+    /// with teenyc, before the binary is copied to a board that has none.
     #[arg(long)]
     compile_only: bool,
 }
@@ -112,8 +162,6 @@ fn visible(text: &str) -> String {
     t.trim().to_string()
 }
 
-/// The part of a reply meant for a reader. A function call is the model addressing the
-/// runtime, not the visitor, so it is shown as a tool card instead and never as prose.
 /// `text` cut to `limit` bytes on a character boundary, for a log line.
 fn truncate(text: &str, limit: usize) -> &str {
     if text.len() <= limit {
@@ -126,6 +174,9 @@ fn truncate(text: &str, limit: usize) -> &str {
     &text[..end]
 }
 
+/// The part of a reply meant for a reader. A function call is the model addressing the
+/// runtime, not the reader, so it is shown as a tool card (or a `call:` line) instead and
+/// never as prose.
 fn speech(text: &str) -> String {
     let t = visible(text);
     match t.find("<start_function_call>") {
@@ -154,6 +205,22 @@ impl Stats {
             "context_used": context_used,
             "context_total": context_total,
         })
+    }
+
+    /// The same measurements as one line, for the terminal modes.
+    fn report(&self, context_used: usize, context_total: usize) -> String {
+        format!(
+            "  [{} new prompt tokens in {:.2} s ({:.1} tokens/s); first token after {:.2} s; \
+             {} tokens out at {:.1} tokens/s decode; context {}/{}]",
+            self.prompt_tokens,
+            self.prompt_s,
+            self.prompt_tokens as f64 / self.prompt_s.max(1e-9),
+            self.first_token_s,
+            self.out_tokens,
+            self.decode_per_s,
+            context_used,
+            context_total
+        )
     }
 }
 
@@ -209,7 +276,7 @@ impl Engine<'_> {
             }
             anyhow::ensure!(
                 self.session.cache.len < self.session.cache.capacity,
-                "the conversation reached its {} token limit; start a new one",
+                "the conversation reached its {} token limit (--context); start a new one",
                 self.session.cache.capacity
             );
             logits = self.session.step(self.device, &mut self.one, &[tok])?;
@@ -520,11 +587,126 @@ fn handle_chat(
     Ok(())
 }
 
+fn demo_tools() -> Value {
+    json!([
+        {"type": "function", "function": {
+            "name": "get_weather", "description": "Get current weather for a city",
+            "parameters": {"type": "object",
+                "properties": {"city": {"type": "string", "description": "City name"}},
+                "required": ["city"]}}},
+        {"type": "function", "function": {
+            "name": "set_timer", "description": "Start a countdown timer",
+            "parameters": {"type": "object",
+                "properties": {
+                    "minutes": {"type": "integer", "description": "Length in minutes"},
+                    "label": {"type": "string", "description": "What the timer is for"}},
+                "required": ["minutes"]}}},
+        {"type": "function", "function": {
+            "name": "send_message", "description": "Send a text message to a contact",
+            "parameters": {"type": "object",
+                "properties": {
+                    "to": {"type": "string", "description": "Contact name"},
+                    "text": {"type": "string", "description": "Message body"}},
+                "required": ["to", "text"]}}}
+    ])
+}
+
+/// Runs a demo tool for real: `get_weather` asks Open-Meteo (through `curl`), `set_timer`
+/// starts a countdown that prints when it ends, and `send_message` appends to
+/// `~/functiongemma-outbox.txt` (there is no messaging service to send through). `None` for
+/// any other tool, which the user then answers.
+fn run_tool(name: &str, args: &Value) -> Option<Value> {
+    let text = |key: &str| {
+        args.get(key)
+            .map(|v| v.as_str().map_or(v.to_string(), str::to_string))
+    };
+    Some(match name {
+        "get_weather" => tools::weather(&text("city")?)
+            .map(|r| tools::model_view(&r))
+            .unwrap_or_else(|e| json!({"error": e.to_string()})),
+        "set_timer" => {
+            let minutes: f64 = text("minutes")?.trim().parse().ok()?;
+            let label = text("label").unwrap_or_else(|| "timer".into());
+            let secs = (minutes * 60.0).max(0.0) as u64;
+            let ends = std::time::SystemTime::now() + std::time::Duration::from_secs(secs);
+            let ends = ends.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs() % 86400;
+            let ends = format!("{:02}:{:02} UTC", ends / 3600, ends / 60 % 60);
+            let l = label.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(secs));
+                println!("\n  [timer '{l}' ({minutes} min) is done]");
+            });
+            json!({"status": "started", "minutes": minutes, "label": label, "ends_at": ends})
+        }
+        "send_message" => {
+            let (to, body) = (text("to")?, text("text").unwrap_or_default());
+            let path = std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .unwrap_or_default()
+                .join("functiongemma-outbox.txt");
+            let saved = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+                .and_then(|mut f| writeln!(f, "to {to}: {body}"));
+            match saved {
+                Ok(()) => json!({"status": "sent", "to": to, "text": body}),
+                Err(e) => json!({"status": "failed", "error": e.to_string()}),
+            }
+        }
+        _ => return None,
+    })
+}
+
+fn read_line(prompt: &str) -> anyhow::Result<Option<String>> {
+    print!("{prompt}");
+    std::io::stdout().flush()?;
+    let mut line = String::new();
+    if std::io::stdin().lock().read_line(&mut line)? == 0 {
+        return Ok(None);
+    }
+    Ok(Some(line.trim_end_matches(['\n', '\r']).to_string()))
+}
+
+/// One reply in a terminal mode: streamed to stdout after `model> `, with its timings on
+/// stderr.
+fn terminal_reply(
+    engine: &mut Engine<'_>,
+    messages: &Value,
+    tools: &Value,
+) -> anyhow::Result<String> {
+    print!("model> ");
+    std::io::stdout().flush()?;
+    let (reply, stats) = engine.reply(messages, tools, |piece| {
+        print!("{piece}");
+        std::io::stdout().flush()?;
+        Ok(())
+    })?;
+    println!();
+    eprintln!(
+        "{}",
+        stats.report(engine.session.cache.len, engine.session.cache.capacity)
+    );
+    Ok(reply)
+}
+
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
-
+    anyhow::ensure!(
+        args.mode == Mode::Tool || args.prompt.is_none(),
+        "--prompt is for --mode tool; in chat mode, type the request at the prompt"
+    );
+    anyhow::ensure!(
+        args.mode != Mode::Serve || args.tools.is_none(),
+        "--tools is for --mode chat and tool; serve offers only the weather tool"
+    );
     let cfg = GemmaConfig::load(&args.model.join("config.json"))?;
     let chat = Chat::load(&args.model)?;
+    let tools: Value = match (&args.tools, args.mode) {
+        (_, Mode::Serve) => json!([tools::declaration()]),
+        (Some(p), _) => serde_json::from_str(&std::fs::read_to_string(p)?)?,
+        (None, _) => demo_tools(),
+    };
     let mut stop = cfg.eos_token_id.ids();
     // <eos>, <start_function_response>, <end_of_turn>.
     stop.extend([1, 50, 106]);
@@ -543,10 +725,24 @@ fn main() -> anyhow::Result<()> {
     )?;
     let one = CompiledStep::new(&device, &cfg, &weights, 1, args.context, &session.past)?;
     drop(weights);
+    let names: Vec<&str> = tools
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|t| t["function"]["name"].as_str())
+                .collect()
+        })
+        .unwrap_or_default();
     eprintln!(
-        "FunctionGemma on {} (ready in {:.1} s)",
+        "FunctionGemma on {} (ready in {:.1} s). Tools: {}.{}",
         runtime::BACKEND_NAME,
-        t0.elapsed().as_secs_f64()
+        t0.elapsed().as_secs_f64(),
+        names.join(", "),
+        if args.mode == Mode::Chat {
+            " /reset, /quit."
+        } else {
+            ""
+        }
     );
 
     let mut engine = Engine {
@@ -558,12 +754,36 @@ fn main() -> anyhow::Result<()> {
         stop,
         max_tokens: args.max_tokens,
     };
-
     if args.compile_only {
-        println!("kernels compiled; not listening (--compile-only)");
+        println!("kernels compiled (--compile-only)");
         return Ok(());
     }
+    let base: Vec<Value> = args
+        .system
+        .iter()
+        .map(|s| json!({"role": "system", "content": s}))
+        .collect();
 
+    match args.mode {
+        Mode::Chat => chat_loop(&mut engine, &tools, &base, args.manual_tools),
+        Mode::Tool => {
+            let mut messages = base;
+            messages.push(
+                json!({"role": "user", "content": args.prompt.as_deref().unwrap_or_default()}),
+            );
+            let reply = terminal_reply(&mut engine, &Value::Array(messages), &tools)?;
+            for call in parse_calls(&reply)? {
+                println!("call: {}({})", call.name, call.args);
+            }
+            Ok(())
+        }
+        Mode::Serve => serve(&mut engine, &args),
+    }
+}
+
+/// The weather web demo of `serve` mode: answers HTTP requests until the process is
+/// stopped.
+fn serve(engine: &mut Engine<'_>, args: &Args) -> anyhow::Result<()> {
     let listener = TcpListener::bind(&args.listen)?;
     let public = args
         .public_url
@@ -636,9 +856,7 @@ fn main() -> anyhow::Result<()> {
                 }
                 let result = begin_stream(&mut stream)
                     .map_err(anyhow::Error::from)
-                    .and_then(|()| {
-                        handle_chat(&mut engine, &args.system, &request.body, &mut stream)
-                    });
+                    .and_then(|()| handle_chat(engine, &args.system, &request.body, &mut stream));
                 if let Err(e) = result {
                     eprintln!("chat failed: {e}");
                     let _ = event(
@@ -657,6 +875,77 @@ fn main() -> anyhow::Result<()> {
                     body.as_bytes(),
                 );
             }
+        }
+    }
+    Ok(())
+}
+
+/// The interactive conversation of `chat` mode.
+fn chat_loop(
+    engine: &mut Engine<'_>,
+    tools: &Value,
+    base: &[Value],
+    manual_tools: bool,
+) -> anyhow::Result<()> {
+    let mut messages = base.to_vec();
+    while let Some(line) = read_line("you> ")? {
+        let line = line.trim();
+        match line {
+            "" => continue,
+            "/quit" | "/exit" => break,
+            "/reset" => {
+                messages = base.to_vec();
+                eprintln!("  [conversation cleared]");
+                continue;
+            }
+            _ => {}
+        }
+        messages.push(json!({"role": "user", "content": line}));
+        let mut reply = terminal_reply(engine, &Value::Array(messages.clone()), tools)?;
+
+        // Function calls: run the tool (or the user plays it), then the model answers.
+        let mut rounds = 0;
+        loop {
+            let calls = parse_calls(&reply)?;
+            if calls.is_empty() || rounds == 4 {
+                messages.push(json!({"role": "assistant", "content": visible(&reply)}));
+                break;
+            }
+            rounds += 1;
+            let tool_calls: Vec<Value> = calls
+                .iter()
+                .map(|c| json!({"type": "function", "function": {"name": c.name, "arguments": c.args}}))
+                .collect();
+            messages.push(json!({"role": "assistant", "tool_calls": tool_calls}));
+            let mut answered = false;
+            for c in &calls {
+                println!("  call: {}({})", c.name, c.args);
+                if let Some(result) = (!manual_tools)
+                    .then(|| run_tool(&c.name, &c.args))
+                    .flatten()
+                {
+                    println!("  {} -> {result}", c.name);
+                    messages.push(json!({"role": "tool", "name": c.name, "content": result}));
+                    answered = true;
+                    continue;
+                }
+                let Some(result) = read_line(&format!("  {} result> ", c.name))? else {
+                    return Ok(());
+                };
+                if result.trim().is_empty() {
+                    continue;
+                }
+                let content = serde_json::from_str::<Value>(&result)
+                    .ok()
+                    .filter(Value::is_object)
+                    .unwrap_or(Value::String(result));
+                messages.push(json!({"role": "tool", "name": c.name, "content": content}));
+                answered = true;
+            }
+            if !answered {
+                break;
+            }
+            reply = terminal_reply(engine, &Value::Array(messages.clone()), tools)?;
         }
     }
     Ok(())

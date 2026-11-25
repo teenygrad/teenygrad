@@ -70,7 +70,7 @@ ssh board 'cd functiongemma-chat && env '"$E"' ./chat --model model --manual-too
 ```
 
 Expect replies of 17, 55, 17, 56, 15, 54, 16, 55, 15, 55, 16, 56 tokens and a final context of
-1007, the same as the CUDA build (`target/release/examples/functiongemma --model <model folder>
+1007, the same as the CUDA build (`target/release/examples/chat --model <model folder>
 --manual-tools < long.txt`). Before the fix for teenyc bug 5 the RISC-V build produced `<pad>`
 from the turn after 498 tokens.
 
@@ -200,7 +200,7 @@ Expect 2200 / 1800 MHz and throttle states 0 / 0 (X100 / A100).
 
 ## 6. The weather web demo
 
-`examples/functiongemma_serve.rs` is the `functiongemma` example's chat mode with a browser in front of it: the same model and the
+`--mode serve` of `examples/chat.rs` is its chat mode with a browser in front of it: the same model and the
 same `get_weather` tool, reached over HTTP, with the sky behind the page painted from whatever
 the tool just returned. Deploying it is one command, and it shares `board-chat.sh`'s kernel
 cache, so if you have run the chat already this only cross-compiles the binary:

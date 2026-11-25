@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """End-to-end checks for the FunctionGemma weather demo.
 
-Points at a running `functiongemma_serve` (the board through an ssh tunnel, or a local build) and puts a
+Points at a running `chat --mode serve` (the board through an ssh tunnel, or a local build) and puts a
 hundred-odd cases through it.
 
 The question a demo like this has to answer is not "did the model call something", it is "did

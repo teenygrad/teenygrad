@@ -273,7 +273,7 @@ pub fn model_view(result: &Value) -> Value {
 
 /// A WMO weather code in words. The web demo also keys its icon off this text, so the
 /// wording is part of the interface: keep the arms in step with `conditionIcon` in
-/// `assets/functiongemma/index.html`.
+/// `examples/assets/functiongemma/index.html`.
 pub fn conditions(code: u64) -> &'static str {
     match code {
         0 => "clear sky",
