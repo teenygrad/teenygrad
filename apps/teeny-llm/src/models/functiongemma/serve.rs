@@ -41,6 +41,7 @@ use crate::chat::{
     ContentPart, Delta, Message, ToolCallDelta, ToolCallKind, ToolChoice, ToolKind, ToolSupport,
 };
 use crate::models::{LoadOptions, LoadedModel, Model};
+use crate::timings::Recorder;
 use crate::tokenizer::{HfTokenizer, Tokenizer};
 use crate::{Error, ModelInfo, Result};
 
@@ -151,6 +152,8 @@ pub struct FunctionGemmaChat {
 /// A request for the worker: the chat template's inputs, how to shape the reply, and
 /// where to send it.
 struct Job {
+    /// When the request was accepted, so its timings include waiting for the worker.
+    accepted: std::time::Instant,
     messages: Value,
     tools: Value,
     plan: ReplyPlan,
@@ -175,6 +178,7 @@ impl ChatModel for FunctionGemmaChat {
             let (events, stream) = async_mpsc::unbounded();
             self.jobs
                 .send(Job {
+                    accepted: std::time::Instant::now(),
                     messages,
                     tools,
                     plan,
@@ -287,6 +291,7 @@ impl Worker {
         job: Job,
     ) {
         let Job {
+            accepted,
             messages,
             tools,
             plan,
@@ -308,6 +313,8 @@ impl Worker {
             .take_while(|(a, b)| a == b)
             .count()
             .min(prompt.len() - 1);
+        let mut timings = Recorder::accepted_at(accepted);
+        timings.begin_prompt();
         let mut logits = match self.session.feed(device, chunk, one, &prompt) {
             Ok(l) => l,
             Err(e) => {
@@ -315,6 +322,7 @@ impl Worker {
                 return;
             }
         };
+        timings.end_prompt(prompt.len() - cached, cached);
         if started.send(Ok(())).is_err() {
             return;
         }
@@ -327,6 +335,7 @@ impl Worker {
         let send = |e: Result<ChatEvent>| events.unbounded_send(e).is_ok();
         let outcome = loop {
             let tok = argmax(&logits);
+            timings.token();
             generated += 1;
             let piece = match decoder.step(tok) {
                 Ok(p) => p.unwrap_or_default(),
@@ -356,6 +365,7 @@ impl Worker {
                 for e in reply.finish(hit_limit) {
                     send(Ok(e));
                 }
+                send(Ok(ChatEvent::Timings(timings.finish())));
                 send(Ok(ChatEvent::Usage(ChatUsage {
                     prompt_tokens: count(prompt.len()),
                     completion_tokens: count(generated),

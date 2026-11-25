@@ -10,6 +10,9 @@ HTTP API) serves:
   implement, and an echo model as its reference implementation: `chat` (`ChatModel`),
   `completion` (`CompletionModel`), `embedding` (`EmbeddingModel`),
   `moderation` (`ModerationModel`)
+- `timings`: `Timings`, how long a generation took, phase by phase (queue, prompt tokens run
+  and reused, first token, decode, and each decode step's latency), which chat and completion
+  models send just before their usage; `Recorder` measures it
 - `tokenizer`: the `Tokenizer` trait, with a byte tokenizer and Hugging Face's (`hf-tokenizer`)
 - `models::Model`: the models a build includes, by tag (`functiongemma3:270m`), and
   `Model::load`, which loads one as a `LoadedModel` exposing the APIs it serves

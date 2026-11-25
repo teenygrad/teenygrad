@@ -199,6 +199,26 @@ async fn test_functiongemma_serves_chat_with_tool_calls() -> anyhow::Result<()> 
         ..ChatRequest::default()
     };
     let first = ask(request.clone()).await?;
+    let t = first
+        .timings
+        .clone()
+        .expect("FunctionGemma measures its generation");
+    println!(
+        "first turn: {} prompt tokens at {:.1} tokens/s, first token after {:.0?}, {} tokens at \
+         {:.1} tokens/s (p50 {:.1?}, p99 {:.1?})",
+        t.prompt_tokens,
+        t.prompt_tokens_per_second(),
+        t.first_token,
+        t.generated_tokens,
+        t.generation_tokens_per_second(),
+        t.latency_percentile(50.0).unwrap_or_default(),
+        t.latency_percentile(99.0).unwrap_or_default(),
+    );
+    assert_eq!(t.prompt_tokens + t.cached_tokens, first.usage.prompt_tokens);
+    assert_eq!(t.generated_tokens, first.usage.completion_tokens);
+    assert_eq!(t.token_latencies.len() + 1, t.generated_tokens as usize);
+    assert!(!t.prompt.is_zero() && t.first_token >= t.prompt, "{t:?}");
+    assert!(t.generation_tokens_per_second() > 0.0, "{t:?}");
     let choice = &first.choices[0];
     assert_eq!(
         choice.finish_reason,
@@ -226,6 +246,13 @@ async fn test_functiongemma_serves_chat_with_tool_calls() -> anyhow::Result<()> 
         second.usage.cached_prompt_tokens >= first.usage.prompt_tokens / 2,
         "the second turn should reuse the first's KV cache: {:?}",
         second.usage
+    );
+    let t2 = second
+        .timings
+        .expect("FunctionGemma measures its generation");
+    assert_eq!(
+        t2.cached_tokens, second.usage.cached_prompt_tokens,
+        "{t2:?}"
     );
     Ok(())
 }

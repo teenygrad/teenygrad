@@ -136,6 +136,8 @@ async fn chat_completions(
                 )],
                 None,
             )),
+            // Not on the wire yet.
+            Ok(ChatEvent::Timings(_)) => None,
             Ok(ChatEvent::Usage(u)) => include_usage.then(|| chunk(Vec::new(), Some(u.into()))),
         };
         std::future::ready(event)
@@ -202,6 +204,8 @@ async fn completions(
                 };
                 Some(sse_event(&response(vec![choice], None)))
             }
+            // Not on the wire yet.
+            Ok(CompletionEvent::Timings(_)) => None,
             Ok(CompletionEvent::Usage(u)) => {
                 include_usage.then(|| sse_event(&response(Vec::new(), Some(u.into()))))
             }

@@ -37,7 +37,7 @@ use futures::future::BoxFuture;
 use futures::{Stream, StreamExt};
 
 use crate::chat::{MAX_STOP_STRINGS, Sampling, SamplingSupport};
-use crate::{Error, ModelInfo, Result, Usage};
+use crate::{Error, ModelInfo, Result, Timings, Usage};
 
 /// The OpenAI limit on `logprobs` in a completion request.
 pub const MAX_LOGPROBS: u8 = 5;
@@ -126,6 +126,8 @@ pub enum CompletionEvent {
         index: u32,
         reason: CompletionFinishReason,
     },
+    /// How long the request took, phase by phase.
+    Timings(Timings),
     Usage(Usage),
 }
 
@@ -146,6 +148,8 @@ pub struct CompletionChoice {
 pub struct Completion {
     pub choices: Vec<CompletionChoice>,
     pub usage: Usage,
+    /// How long it took, from a model that measures itself.
+    pub timings: Option<Timings>,
 }
 
 /// What a completion model can do.
@@ -361,6 +365,7 @@ pub async fn collect(choices: usize, mut stream: CompletionStream) -> Result<Com
         Option<CompletionFinishReason>,
     )> = vec![(String::new(), Vec::new(), None); choices];
     let mut usage = None;
+    let mut timings = None;
     while let Some(event) = stream.next().await {
         match event? {
             CompletionEvent::Text {
@@ -380,6 +385,7 @@ pub async fn collect(choices: usize, mut stream: CompletionStream) -> Result<Com
                     .ok_or_else(|| out_of_range(index, choices))?
                     .2 = Some(reason);
             }
+            CompletionEvent::Timings(t) => timings = Some(t),
             CompletionEvent::Usage(u) => usage = Some(u),
         }
     }
@@ -404,6 +410,7 @@ pub async fn collect(choices: usize, mut stream: CompletionStream) -> Result<Com
         usage: usage.ok_or_else(|| {
             Error::Inference("the completion stream ended without its usage".into())
         })?,
+        timings,
     })
 }
 

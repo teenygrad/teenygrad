@@ -44,7 +44,9 @@ mod types;
 pub mod kernels;
 pub mod models;
 pub mod moderation;
+pub mod timings;
 
 pub use embedding::Embeddings;
 pub use error::{Error, Result};
+pub use timings::Timings;
 pub use types::{ModelInfo, Usage};

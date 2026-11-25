@@ -22,7 +22,7 @@ use std::pin::Pin;
 use futures::{Stream, StreamExt};
 
 use super::request::{AssistantMessage, AudioReply, ToolCall, ToolCallKind};
-use crate::{Error, Result};
+use crate::{Error, Result, Timings};
 
 /// A chat model's output, as it is generated.
 pub type ChatStream = Pin<Box<dyn Stream<Item = Result<ChatEvent>> + Send>>;
@@ -32,7 +32,8 @@ pub type ChatStream = Pin<Box<dyn Stream<Item = Result<ChatEvent>> + Send>>;
 /// For each choice (`index` 0 to `n - 1`) a stream carries any number of
 /// [`ChatEvent::Delta`]s and then exactly one [`ChatEvent::Finish`]. Choices may interleave.
 /// The stream ends with one [`ChatEvent::Usage`], whether or not the request asked to see it
-/// (frontends drop it when `include_usage` is off).
+/// (frontends drop it when `include_usage` is off), after at most one [`ChatEvent::Timings`]
+/// from a model that measures itself.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ChatEvent {
     Delta {
@@ -43,6 +44,8 @@ pub enum ChatEvent {
         index: u32,
         reason: ChatFinishReason,
     },
+    /// How long the request took, phase by phase.
+    Timings(Timings),
     Usage(ChatUsage),
 }
 
@@ -142,6 +145,8 @@ pub struct ChatCompletion {
     /// One per requested choice, in `index` order.
     pub choices: Vec<Choice>,
     pub usage: ChatUsage,
+    /// How long it took, from a model that measures itself.
+    pub timings: Option<Timings>,
 }
 
 /// One finished choice.
@@ -172,6 +177,7 @@ pub async fn collect(model: &str, n: u32, mut stream: ChatStream) -> Result<Chat
     let broken = |what: String| Error::Inference(format!("model `{model}` {what}"));
     let mut partials: Vec<Partial> = (0..n).map(|_| Partial::default()).collect();
     let mut usage = None;
+    let mut timings = None;
     while let Some(event) = stream.next().await {
         if usage.is_some() {
             return Err(broken("sent an event after its usage".into()));
@@ -194,6 +200,11 @@ pub async fn collect(model: &str, n: u32, mut stream: ChatStream) -> Result<Chat
                     .ok_or_else(|| broken(format!("finished choice {index} of {n}")))?;
                 if p.finish.replace(reason).is_some() {
                     return Err(broken(format!("finished choice {index} twice")));
+                }
+            }
+            ChatEvent::Timings(t) => {
+                if timings.replace(t).is_some() {
+                    return Err(broken("sent its timings twice".into()));
                 }
             }
             ChatEvent::Usage(u) => usage = Some(u),
@@ -222,6 +233,7 @@ pub async fn collect(model: &str, n: u32, mut stream: ChatStream) -> Result<Chat
         model: model.to_owned(),
         choices,
         usage,
+        timings,
     })
 }
 
@@ -381,6 +393,15 @@ mod tests {
             (
                 vec![call(0, 0, None, None, "{}"), usage()],
                 "before giving its id and name",
+            ),
+            (
+                vec![
+                    finish(0, ChatFinishReason::Stop),
+                    ChatEvent::Timings(crate::Timings::default()),
+                    ChatEvent::Timings(crate::Timings::default()),
+                    usage(),
+                ],
+                "timings twice",
             ),
             (
                 vec![finish(0, ChatFinishReason::Stop), usage(), usage()],

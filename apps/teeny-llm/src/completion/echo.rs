@@ -67,6 +67,7 @@ impl CompletionModel for EchoCompletionModel {
 
     fn complete(&self, request: CompletionRequest) -> BoxFuture<'_, Result<CompletionStream>> {
         Box::pin(async move {
+            let accepted = std::time::Instant::now();
             let mut events = Vec::new();
             let mut usage = Usage::default();
             let limit = request.max_tokens.map_or(usize::MAX, |n| n as usize);
@@ -136,6 +137,11 @@ impl CompletionModel for EchoCompletionModel {
                     events.push(CompletionEvent::Finish { index, reason });
                 }
             }
+            events.push(CompletionEvent::Timings(crate::timings::instant(
+                accepted,
+                usage.prompt_tokens,
+                usage.completion_tokens,
+            )));
             events.push(CompletionEvent::Usage(usage));
             let stream: CompletionStream =
                 Box::pin(futures::stream::iter(events.into_iter().map(Ok)));
@@ -180,6 +186,8 @@ mod tests {
                 completion_tokens: 6
             }
         );
+        let t = c.timings.expect("the echo model measures itself");
+        assert_eq!((t.prompt_tokens, t.generated_tokens), (3, 6));
     }
 
     #[tokio::test]

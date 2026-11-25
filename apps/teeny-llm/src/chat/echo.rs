@@ -107,6 +107,7 @@ impl ChatModel for EchoChatModel {
 
     fn chat(&self, request: ChatRequest) -> BoxFuture<'_, Result<ChatStream>> {
         Box::pin(async move {
+            let accepted = std::time::Instant::now();
             let reply = request
                 .messages
                 .iter()
@@ -208,6 +209,11 @@ impl ChatModel for EchoChatModel {
                     .saturating_add(u32::try_from(emitted.len()).unwrap_or(u32::MAX));
                 events.push(ChatEvent::Finish { index, reason });
             }
+            events.push(ChatEvent::Timings(crate::timings::instant(
+                accepted,
+                prompt_tokens,
+                completion_tokens,
+            )));
             events.push(ChatEvent::Usage(ChatUsage {
                 prompt_tokens,
                 completion_tokens,
@@ -244,6 +250,12 @@ mod tests {
         assert_eq!(c.choices[0].finish_reason, ChatFinishReason::Stop);
         assert_eq!(c.usage.prompt_tokens, 4);
         assert_eq!(c.usage.completion_tokens, 2);
+        let t = c.timings.expect("the echo model measures itself");
+        assert_eq!(
+            (t.prompt_tokens, t.cached_tokens, t.generated_tokens),
+            (4, 0, 2)
+        );
+        assert_eq!(t.token_latencies.len(), 1);
     }
 
     #[tokio::test]

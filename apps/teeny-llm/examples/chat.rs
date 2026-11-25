@@ -80,6 +80,7 @@ use teeny_llm::models::functiongemma::GemmaConfig;
 use teeny_llm::models::functiongemma::chat::{Chat, parse_calls};
 use teeny_llm::models::functiongemma::runner::{CompiledStep, Session, Weights, argmax};
 use teeny_llm::models::functiongemma::tools;
+use teeny_llm::timings::{Recorder, Timings};
 use teeny_test::model::runtime;
 
 /// The demo page, compiled in so the board needs no files beside the binary.
@@ -202,23 +203,23 @@ fn speech(text: &str) -> String {
     }
 }
 
-/// One generation's measurements, reported to the page so it can show them.
-struct Stats {
-    prompt_tokens: usize,
-    prompt_s: f64,
-    first_token_s: f64,
-    out_tokens: usize,
-    decode_per_s: f64,
+/// One generation's measurements, as the page and the terminal modes show them.
+trait Report {
+    fn to_json(&self, context_used: usize, context_total: usize) -> Value;
+    fn report(&self, context_used: usize, context_total: usize) -> String;
 }
 
-impl Stats {
+impl Report for Timings {
     fn to_json(&self, context_used: usize, context_total: usize) -> Value {
+        let ms = |d: Option<std::time::Duration>| d.map(|d| d.as_secs_f64() * 1e3);
         json!({
             "prompt_tokens": self.prompt_tokens,
-            "prompt_per_s": self.prompt_tokens as f64 / self.prompt_s.max(1e-9),
-            "first_token_s": self.first_token_s,
-            "out_tokens": self.out_tokens,
-            "decode_per_s": self.decode_per_s,
+            "prompt_per_s": self.prompt_tokens_per_second(),
+            "first_token_s": self.first_token.as_secs_f64(),
+            "out_tokens": self.generated_tokens,
+            "decode_per_s": self.generation_tokens_per_second(),
+            "decode_p50_ms": ms(self.latency_percentile(50.0)),
+            "decode_p99_ms": ms(self.latency_percentile(99.0)),
             "context_used": context_used,
             "context_total": context_total,
         })
@@ -230,11 +231,11 @@ impl Stats {
             "  [{} new prompt tokens in {:.2} s ({:.1} tokens/s); first token after {:.2} s; \
              {} tokens out at {:.1} tokens/s decode; context {}/{}]",
             self.prompt_tokens,
-            self.prompt_s,
-            self.prompt_tokens as f64 / self.prompt_s.max(1e-9),
-            self.first_token_s,
-            self.out_tokens,
-            self.decode_per_s,
+            self.prompt.as_secs_f64(),
+            self.prompt_tokens_per_second(),
+            self.first_token.as_secs_f64(),
+            self.generated_tokens,
+            self.generation_tokens_per_second(),
             context_used,
             context_total
         )
@@ -259,7 +260,7 @@ impl Engine<'_> {
         messages: &Value,
         tools: &Value,
         mut on_token: impl FnMut(&str) -> anyhow::Result<()>,
-    ) -> anyhow::Result<(String, Stats)> {
+    ) -> anyhow::Result<(String, Timings)> {
         let prompt = self.chat.prompt(messages, tools)?;
         let fresh = prompt.len()
             - self
@@ -269,23 +270,22 @@ impl Engine<'_> {
                 .zip(&prompt)
                 .take_while(|(a, b)| a == b)
                 .count();
-        let t0 = Instant::now();
+        let mut timings = Recorder::new();
+        timings.begin_prompt();
         let mut logits = self
             .session
             .feed(self.device, &mut self.chunk, &mut self.one, &prompt)?;
-        let prompt_s = t0.elapsed().as_secs_f64();
+        timings.end_prompt(fresh, prompt.len() - fresh);
 
-        let t1 = Instant::now();
         let mut out = Vec::new();
         let mut shown = 0;
-        let mut first_at: Option<f64> = None;
         // The reply so far, decoded a token at a time rather than re-decoded in full.
         let mut decoder = self.chat.stream_decoder();
         let mut raw = String::new();
         loop {
             let tok = argmax(&logits);
             out.push(tok);
-            first_at.get_or_insert_with(|| t1.elapsed().as_secs_f64());
+            timings.token();
             if let Some(piece) = decoder.step(tok)? {
                 raw.push_str(&piece);
             }
@@ -304,20 +304,7 @@ impl Engine<'_> {
             );
             logits = self.session.step(self.device, &mut self.one, &[tok])?;
         }
-        let gen_s = t1.elapsed().as_secs_f64();
-        let first = first_at.unwrap_or(0.0);
-        let stats = Stats {
-            prompt_tokens: fresh,
-            prompt_s,
-            first_token_s: prompt_s + first,
-            out_tokens: out.len(),
-            decode_per_s: if out.len() > 1 {
-                (out.len() - 1) as f64 / (gen_s - first).max(1e-9)
-            } else {
-                0.0
-            },
-        };
-        Ok((self.chat.decode(&out)?, stats))
+        Ok((self.chat.decode(&out)?, timings.finish()))
     }
 }
 
