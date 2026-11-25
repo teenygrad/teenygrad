@@ -122,7 +122,23 @@
 //! a token, 0.32 tokens/s. Four rounds took that from 626 ms a layer: removing
 //! `exp2` from the dequant, unpacking with shifts, telling LLVM the vector width is
 //! 256 bits, and folding the scales. llama.cpp's Q4_0 build of the same model on the
-//! same cores does 4 tokens/s, and the gap is the per-weight unpacking.
+//! same cores does 4 tokens/s.
+//!
+//! That gap is not the per-weight unpacking, as this note used to say. A token moves
+//! 3.96 G active parameters, so llama.cpp's 4 tokens/s is ~8.9 GB/s of weights and our
+//! 0.32 is ~0.7 GB/s: we are nowhere near a bandwidth limit, we are spending the time
+//! elsewhere. The assembly says where. Vector values were sized at a whole register
+//! file (`BLOCK = 256` at `e32`, VLEN=256) and spilled to the stack -- 229 whole-register
+//! spill/fill operations in the NVFP4 gather against ~27 arithmetic ones. It is not
+//! confined to that kernel: `nvfp4_dequant`, `gated_mul`, `softcap` and `swiglu` each
+//! spill 370-450 times, and at 6500-7900 lines of assembly for ops this simple they
+//! have a second problem, unrolling, which `BLOCK` does not explain.
+//!
+//! `BLOCK = 32` takes the gather's spills to 6 and its assembly to a fifth, with the
+//! kernel tests unchanged. What that is worth in time is **unmeasured**: the board was
+//! unreachable when it landed, and qemu misreports these kernels by 2-3x in the wrong
+//! direction, so treat spill counts as a proxy and nothing more until a board run
+//! replaces the figures in the first paragraph.
 
 // The kernel tests lower through teeny-kernels and run through teeny-test, and the
 // runner will use both once it exists; without this the crate lints as not using the
