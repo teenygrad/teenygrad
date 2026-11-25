@@ -87,6 +87,10 @@ name = "inkling2"
 required-features = ["inkling2"]
 
 [[example]]
+name = "inkling2_convert"
+required-features = ["inkling2"]
+
+[[example]]
 name = "functiongemma"
 required-features = ["functiongemma"]
 

@@ -43,6 +43,10 @@ pub struct Checkpoint {
     index: HashMap<String, String>,
     /// Shards mapped so far, by file name.
     shards: HashMap<String, Mmap>,
+    /// Whether this checkpoint has already been through `inkling2_convert`, so the
+    /// tensors are the f32 the engine loads and need no packing, folding or
+    /// expansion.
+    converted: bool,
 }
 
 /// Packs bytes four to an f32 element, which is how the quantised kernels read them.
@@ -133,16 +137,28 @@ impl Checkpoint {
                 .map(|n| (n.to_string(), "model.safetensors".to_string()))
                 .collect()
         };
+        let converted = index.contains_key("__converted__");
         Ok(Self {
             dir: dir.to_path_buf(),
             index,
             shards: HashMap::new(),
+            converted,
         })
     }
 
     /// Tensor names in the checkpoint.
     pub fn names(&self) -> impl Iterator<Item = &str> {
         self.index.keys().map(String::as_str)
+    }
+
+    /// The encoding `tensor` would return for `name`, without reading its data.
+    pub fn encoding_of(&mut self, name: &str) -> anyhow::Result<Encoding> {
+        Ok(self.tensor(name)?.2)
+    }
+
+    /// Whether this checkpoint is already in the engine's load-time form.
+    pub fn is_converted(&self) -> bool {
+        self.converted
     }
 
     /// Whether the checkpoint has `name`.
@@ -261,6 +277,10 @@ impl Checkpoint {
     /// Costs 4 bytes a block instead of 1, which is 0.25 bytes a weight.
     pub fn folded_scale(&mut self, prefix: &str) -> anyhow::Result<Vec<f32>> {
         let (bytes, shape, _) = self.tensor(&format!("{prefix}_scale"))?;
+        // A converted checkpoint stores the product already.
+        if self.converted {
+            return Ok(bytes);
+        }
         let s2 = self.expert_scale2(prefix)?;
         anyhow::ensure!(
             !s2.is_empty() && bytes.len() % s2.len() == 0,
