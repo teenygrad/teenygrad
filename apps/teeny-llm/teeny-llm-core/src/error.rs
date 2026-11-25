@@ -45,6 +45,10 @@ pub enum Error {
         operation: &'static str,
     },
 
+    /// A model's weights could not be found or are incomplete.
+    #[error("model weights: {0}")]
+    Weights(String),
+
     #[error("inference failed: {0}")]
     Inference(String),
 }

@@ -66,11 +66,11 @@ turns with a fixed tool result, ending at 1007 tokens.
 R='{"city":"Smolensk, Russia","conditions":"rain","humidity_percent":94,"temperature_c":2.0,"wind_kmh":14.7}'
 { for c in Smolensk Vyazma Moscow Tula Kursk Orel; do echo "What is the weather in $c?"; echo "$R"; done; echo /quit; } > long.txt
 scp long.txt board:
-ssh board 'cd functiongemma-chat && env '"$E"' ./chat --model model --manual-tools < ~/long.txt 2>&1 | grep -o "[0-9]* tokens out\|context [0-9]*"'
+ssh board 'cd functiongemma-chat && env '"$E"' ./chat --model-dir model --manual-tools < ~/long.txt 2>&1 | grep -o "[0-9]* tokens out\|context [0-9]*"'
 ```
 
 Expect replies of 17, 55, 17, 56, 15, 54, 16, 55, 15, 55, 16, 56 tokens and a final context of
-1007, the same as the CUDA build (`target/release/examples/chat --model <model folder>
+1007, the same as the CUDA build (`target/release/examples/chat --model-dir <model folder>
 --manual-tools < long.txt`). Before the fix for teenyc bug 5 the RISC-V build produced `<pad>`
 from the turn after 498 tokens.
 
@@ -80,7 +80,7 @@ The benchmark conversation is two turns: a question that triggers a tool call, t
 result. `--manual-tools` keeps the tool result fixed (the live weather would change the text):
 
 ```bash
-ssh board 'cd functiongemma-chat && printf "What is the weather in Paris?\nsunny, 21C\n/quit\n" | env '"$E"' ./chat --model model --manual-tools'
+ssh board 'cd functiongemma-chat && printf "What is the weather in Paris?\nsunny, 21C\n/quit\n" | env '"$E"' ./chat --model-dir model --manual-tools'
 ```
 
 Each turn prints `[N new prompt tokens in … (… tokens/s); first token after … s; M tokens out at
@@ -124,7 +124,7 @@ step's total (`[step 1 tokens] total …`); it slows a step somewhat. To average
 steps:
 
 ```bash
-ssh board 'cd functiongemma-chat && printf "What is the weather in Paris?\nsunny, 21C\n/quit\n" | env '"$E"' TEENY_GEMMA_TRACE=1 ./chat --model model --manual-tools 2> trace.log >/dev/null; grep -c "^\[step 1 tokens\]" trace.log'
+ssh board 'cd functiongemma-chat && printf "What is the weather in Paris?\nsunny, 21C\n/quit\n" | env '"$E"' TEENY_GEMMA_TRACE=1 ./chat --model-dir model --manual-tools 2> trace.log >/dev/null; grep -c "^\[step 1 tokens\]" trace.log'
 scp board:functiongemma-chat/trace.log .
 python3 - trace.log <<'PY'
 import re, sys, collections

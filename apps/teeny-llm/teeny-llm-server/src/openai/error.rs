@@ -93,7 +93,7 @@ impl From<teeny_llm_core::Error> for ApiError {
                 None,
                 Some("unsupported"),
             ),
-            E::Inference(_) => (
+            E::Weights(_) | E::Inference(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "server_error",
                 None,

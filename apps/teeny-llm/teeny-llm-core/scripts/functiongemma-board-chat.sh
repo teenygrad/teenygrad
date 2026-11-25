@@ -71,7 +71,7 @@ echo "building the kernel cache under qemu (loads the model first; a few minutes
 (
     cd "$stage"
     echo /quit | TEENYC_CACHE_DIR=$cache TEENYC_CAPABILITY=$capability \
-        "$qemu" -cpu max -L $sysroot ./chat --model model "${chat_args[@]}"
+        "$qemu" -cpu max -L $sysroot ./chat --model-dir model "${chat_args[@]}"
 )
 cp -r "$cache" "$stage/kernel-cache"
 echo "staged: $stage ($(du -sh "$stage" | cut -f1))"
@@ -84,4 +84,4 @@ rsync -a --delete --info=progress2 "$stage/" "$host:$remote/"
 printf -v args_q '%q ' "${chat_args[@]}"
 ssh -t "$host" "cd $remote && uname -m && nproc && \
     TEENYC_PATH=/nonexistent/teenyc TEENYC_CACHE_DIR=\$PWD/kernel-cache \
-    TEENYC_CAPABILITY=$capability ./chat --model model $args_q"
+    TEENYC_CAPABILITY=$capability ./chat --model-dir model $args_q"

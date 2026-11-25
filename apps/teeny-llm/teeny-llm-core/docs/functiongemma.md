@@ -64,7 +64,7 @@ RVV 1.0 boards).
 Once it's on the board, start the chat again without rebuilding:
 
 ```bash
-ssh -t board 'cd functiongemma-chat && TEENYC_PATH=/nonexistent/teenyc TEENYC_CACHE_DIR=$PWD/kernel-cache TEENYC_CAPABILITY=spacemit-k3 ./chat --model model'
+ssh -t board 'cd functiongemma-chat && TEENYC_PATH=/nonexistent/teenyc TEENYC_CACHE_DIR=$PWD/kernel-cache TEENYC_CAPABILITY=spacemit-k3 ./chat --model-dir model'
 ```
 
 ### 4. Using the chat
@@ -131,7 +131,7 @@ Processes start on the X100 cores, and `taskset -c 8-15` fails with "Invalid arg
 a process there, write its pid to SpacemiT's `/proc/set_ai_thread`; its children inherit it:
 
 ```bash
-ssh -t board 'cd functiongemma-chat && bash -c "echo \$\$ > /proc/set_ai_thread; TEENYC_PATH=/nonexistent/teenyc TEENYC_CACHE_DIR=\$PWD/kernel-cache TEENYC_CAPABILITY=spacemit-k3 exec ./chat --model model"'
+ssh -t board 'cd functiongemma-chat && bash -c "echo \$\$ > /proc/set_ai_thread; TEENYC_PATH=/nonexistent/teenyc TEENYC_CACHE_DIR=\$PWD/kernel-cache TEENYC_CAPABILITY=spacemit-k3 exec ./chat --model-dir model"'
 ```
 
 The answers are the same, but slower (8 threads each, before the thread pool):
@@ -155,7 +155,7 @@ gain.
 startup, so one chat uses both clusters; slower A100 threads simply take fewer chunks of work:
 
 ```bash
-ssh -t board 'cd functiongemma-chat && TEENY_RISCV_THREADS=16 TEENY_RISCV_AI_THREADS=8 TEENYC_PATH=/nonexistent/teenyc TEENYC_CACHE_DIR=$PWD/kernel-cache TEENYC_CAPABILITY=spacemit-k3 ./chat --model model'
+ssh -t board 'cd functiongemma-chat && TEENY_RISCV_THREADS=16 TEENY_RISCV_AI_THREADS=8 TEENYC_PATH=/nonexistent/teenyc TEENYC_CACHE_DIR=$PWD/kernel-cache TEENYC_CAPABILITY=spacemit-k3 ./chat --model-dir model'
 ```
 
 | | 8 X100 cores | 16 cores (8 X100 + 8 A100) |
@@ -209,10 +209,11 @@ kernels compiled (and, for 5, ran) correctly. Kernels are also compiled for the 
 ## On a CUDA machine
 
 ```bash
-cargo run --release -p teeny-llm-core --example chat -- --model <model folder>
+cargo run --release -p teeny-llm-core --example chat
 ```
 
-That is an interactive chat (`--mode chat`, the default). `--mode tool --prompt "..."` answers a
+The weights come from the Hugging Face cache's snapshot of `google/functiongemma-270m-it`;
+`--model-dir <folder>` points at another copy. That is an interactive chat (`--mode chat`, the default). `--mode tool --prompt "..."` answers a
 single tool-calling request instead and prints the function calls the model chooses, and
 `--mode serve` starts the weather web demo on `127.0.0.1:8080`.
 

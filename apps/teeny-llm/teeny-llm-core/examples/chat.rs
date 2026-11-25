@@ -18,11 +18,16 @@
 //! a board), in one of three modes:
 //!
 //! ```text
-//! cargo run --release -p teeny-llm-core --example chat -- --model <hf-model-folder> [--tools tools.json]
-//! cargo run --release -p teeny-llm-core --example chat -- --model <hf-model-folder> \
-//!     --mode tool --prompt "What is the weather in Paris?"
-//! cargo run --release -p teeny-llm-core --example chat -- --model <hf-model-folder> --mode serve
+//! cargo run --release -p teeny-llm-core --example chat -- [--tools tools.json]
+//! cargo run --release -p teeny-llm-core --example chat -- --mode tool \
+//!     --prompt "What is the weather in Paris?"
+//! cargo run --release -p teeny-llm-core --example chat -- --mode serve
 //! ```
+//!
+//! `--model` picks the model by tag, `family:size` or the family alone for its default size
+//! (`functiongemma3`, the default and so far the only one, is `functiongemma3:270m`). Its
+//! weights come from the local Hugging Face cache (`google/functiongemma-270m-it`) unless
+//! `--model-dir` names a folder.
 //!
 //! **`chat`** (the default) is an interactive conversation in the terminal. Type a request.
 //! When the model calls a demo tool, the chat runs it: `get_weather` asks Open-Meteo (needs
@@ -70,6 +75,7 @@ use std::time::Instant;
 
 use clap::{Parser, ValueEnum};
 use serde_json::{Value, json};
+use teeny_llm_core::models::Model;
 use teeny_llm_core::models::functiongemma::GemmaConfig;
 use teeny_llm_core::models::functiongemma::chat::{Chat, parse_calls};
 use teeny_llm_core::models::functiongemma::runner::{CompiledStep, Session, Weights, argmax};
@@ -90,6 +96,12 @@ const MAX_HISTORY_MESSAGES: usize = 20;
 /// Longest request body accepted, in bytes.
 const MAX_BODY_BYTES: usize = 64 * 1024;
 
+/// `--model`'s parser: the tags of the models in this build, as [`Model`]s.
+fn model_parser() -> impl clap::builder::TypedValueParser<Value = Model> {
+    use clap::builder::{PossibleValuesParser, TypedValueParser};
+    PossibleValuesParser::new(Model::tags()).try_map(|tag| tag.parse::<Model>())
+}
+
 /// What the example does with the model.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 enum Mode {
@@ -103,10 +115,15 @@ enum Mode {
 
 #[derive(Parser)]
 struct Args {
-    /// The Hugging Face model folder (config.json, model.safetensors, tokenizer.json,
-    /// chat_template.jinja, special_tokens_map.json).
+    /// The model to run, by tag (`family:size`, or the family for its default size); the
+    /// choices are the models this build includes.
+    #[arg(long, default_value = "functiongemma3", ignore_case = true, value_parser = model_parser())]
+    model: Model,
+    /// The model's weights folder (for FunctionGemma: config.json, model.safetensors,
+    /// tokenizer.json, chat_template.jinja, special_tokens_map.json). Defaults to the
+    /// model's snapshot in the local Hugging Face cache.
     #[arg(long)]
-    model: PathBuf,
+    model_dir: Option<PathBuf>,
     /// `chat` for a terminal conversation, `tool` for a single request's function calls,
     /// `serve` for the weather web demo.
     #[arg(long, value_enum, default_value_t = Mode::Chat)]
@@ -700,8 +717,16 @@ fn main() -> anyhow::Result<()> {
         args.mode != Mode::Serve || args.tools.is_none(),
         "--tools is for --mode chat and tool; serve offers only the weather tool"
     );
-    let cfg = GemmaConfig::load(&args.model.join("config.json"))?;
-    let chat = Chat::load(&args.model)?;
+    // The modes below are FunctionGemma's: its chat template, tools and step graphs.
+    anyhow::ensure!(
+        matches!(args.model, Model::FunctionGemma3),
+        "this example runs FunctionGemma only, not {}",
+        args.model
+    );
+    let model_dir = args.model.locate(args.model_dir.as_deref())?;
+    let parameters = args.model.parameter_count(&model_dir)?;
+    let cfg = GemmaConfig::load(&model_dir.join("config.json"))?;
+    let chat = Chat::load(&model_dir)?;
     let tools: Value = match (&args.tools, args.mode) {
         (_, Mode::Serve) => json!([tools::declaration()]),
         (Some(p), _) => serde_json::from_str(&std::fs::read_to_string(p)?)?,
@@ -712,7 +737,7 @@ fn main() -> anyhow::Result<()> {
     stop.extend([1, 50, 106]);
 
     let t0 = Instant::now();
-    let weights = Weights::load(&args.model.join("model.safetensors"))?;
+    let weights = Weights::load(&model_dir.join("model.safetensors"))?;
     let device = runtime::open()?;
     let session = Session::new(cfg.clone(), args.context);
     let chunk = CompiledStep::new(
@@ -733,8 +758,13 @@ fn main() -> anyhow::Result<()> {
                 .collect()
         })
         .unwrap_or_default();
+    let spec = args.model.spec();
     eprintln!(
-        "FunctionGemma on {} (ready in {:.1} s). Tools: {}.{}",
+        "{} ({}, {} parameters, {}) on {} (ready in {:.1} s). Tools: {}.{}",
+        spec.display_name,
+        args.model,
+        parameters,
+        spec.architecture,
         runtime::BACKEND_NAME,
         t0.elapsed().as_secs_f64(),
         names.join(", "),

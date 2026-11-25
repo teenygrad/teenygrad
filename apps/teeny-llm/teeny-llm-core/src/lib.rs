@@ -22,7 +22,8 @@
 //! crate knows about HTTP or the terminal.
 //!
 //! Model implementations live in `models`, each behind a cargo feature named after it
-//! (`functiongemma`), with the kernels they share in `kernels`. Pick the backend with
+//! (`functiongemma`), with the kernels they share in `kernels`; [`models::Model`] lists the
+//! ones a build can run, for command lines to take as `--model`. Pick the backend with
 //! `cuda`, `riscv` or `qemu`; the defaults are `functiongemma` and `cuda`.
 //!
 //! [`teeny-llm-server`]: https://docs.teenygrad.org/api/teenygrad/teeny_llm_server/
@@ -36,7 +37,6 @@ mod types;
 
 #[cfg(feature = "kernels")]
 pub mod kernels;
-#[cfg(feature = "functiongemma")]
 pub mod models;
 
 pub use echo::EchoEngine;

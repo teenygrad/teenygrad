@@ -29,7 +29,7 @@ module.
 
 ```bash
 cargo test -p teeny-llm-core --test test_llm_kernels
-cargo run --release -p teeny-llm-core --example chat -- --model <model folder>
+cargo run --release -p teeny-llm-core --example chat -- --model functiongemma3   # weights from the HF cache, or --model-dir
 ```
 
 > ⚠️ The models are not yet served through `Engine`: `teeny-llm-server` and `teeny-llm-chat`
