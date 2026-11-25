@@ -108,14 +108,23 @@ impl Fixture {
                 let mut it = part.splitn(2, ':');
                 if let (Some(k), Some(v)) = (it.next(), it.next()) {
                     let k = k.trim().trim_matches(|c| c == '"' || c == '{' || c == '}');
-                    if let Ok(v) = v.trim().trim_matches(|c| c == '}' || c == ' ').parse::<f64>() {
+                    if let Ok(v) = v
+                        .trim()
+                        .trim_matches(|c| c == '}' || c == ' ')
+                        .parse::<f64>()
+                    {
                         m.insert(k.to_string(), v);
                     }
                 }
             }
             scalars.insert(key, m);
         }
-        Self { data, spans, shapes, scalars }
+        Self {
+            data,
+            spans,
+            shapes,
+            scalars,
+        }
     }
 
     fn get(&self, name: &str) -> &[f32] {
@@ -148,7 +157,9 @@ impl Fixture {
 
 /// The body of `"key": { ... }` at the top level of `json`, braces stripped.
 fn section(json: &str, key: &str) -> String {
-    let start = json.find(key).unwrap_or_else(|| panic!("no {key} in the fixture"));
+    let start = json
+        .find(key)
+        .unwrap_or_else(|| panic!("no {key} in the fixture"));
     let open = json[start..].find('{').expect("an object after the key") + start;
     let mut depth = 0usize;
     for (i, c) in json[open..].char_indices() {
@@ -222,7 +233,10 @@ fn numbers(body: &str, key: &str) -> Vec<usize> {
         .unwrap_or_else(|| panic!("no {key} in {body}"));
     // Past the key, its quotes and the colon.
     let rest = body[at + key.len() + 2..].trim_start();
-    let rest = rest.strip_prefix(':').expect("a colon after the key").trim_start();
+    let rest = rest
+        .strip_prefix(':')
+        .expect("a colon after the key")
+        .trim_start();
     // An array runs to its closing bracket; a bare number to the next comma or brace.
     let end = if rest.starts_with('[') {
         rest.find(']').expect("a closing bracket") + 1
@@ -363,7 +377,12 @@ fn test_unweighted_rms_norm_matches_the_reference() {
     let r = *f.shape("unweighted_rms_norm.in.x").last().unwrap();
     let g = OneOp::new(&[x.len() / r, r]);
     let got = g.run(UnweightedRmsNormOp::<f32>::new(r), &[], &[x], &[]);
-    assert_matches_reference("unweighted rms norm", &got, f.get("unweighted_rms_norm.out"), 1e-5);
+    assert_matches_reference(
+        "unweighted rms norm",
+        &got,
+        f.get("unweighted_rms_norm.out"),
+        1e-5,
+    );
 }
 
 #[test]
@@ -494,7 +513,12 @@ fn test_router_matches_the_reference() {
     let logits = linear(x, w, hidden, e);
     let rows = x.len() / hidden;
     let g = OneOp::new(&[rows, e]);
-    let got = g.run(TopKRouterOp::<f32>::new(e, k, scale), &[], &[&logits], &[bias]);
+    let got = g.run(
+        TopKRouterOp::<f32>::new(e, k, scale),
+        &[],
+        &[&logits],
+        &[bias],
+    );
 
     let want_w = f.get("router.out.weights");
     let want_i = f.get("router.out.ids");

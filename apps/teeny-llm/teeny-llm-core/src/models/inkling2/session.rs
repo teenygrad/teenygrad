@@ -83,7 +83,9 @@ pub fn graph_keys(cfg: &Inkling2TextConfig, prompt_tokens: usize) -> Vec<GraphKe
 pub fn message_states(cfg: &Inkling2TextConfig) -> usize {
     let l = &cfg.loop_config;
     let per = cfg.n_layers_per_attn_res_block;
-    let in_core = (l.core_start..l.core_end).filter(|layer| layer % per == 0).count();
+    let in_core = (l.core_start..l.core_end)
+        .filter(|layer| layer % per == 0)
+        .count();
     // The pre-core blocks are skipped by the slice, along with one more.
     in_core.saturating_sub(1)
 }

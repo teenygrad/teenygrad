@@ -261,6 +261,10 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for RelBiasRuntimeOp<D> {
         // holds the whole cache and the keys beyond `past + T` come out zero, which
         // the distance check already does for them.
         let rows = resolved[0];
-        vec![rows, self.width.unwrap_or_else(|| self.past.get() + rows / self.heads)]
+        vec![
+            rows,
+            self.width
+                .unwrap_or_else(|| self.past.get() + rows / self.heads),
+        ]
     }
 }
