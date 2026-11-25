@@ -191,9 +191,13 @@ pub fn checkpoint_name(slot: &str, layer: usize) -> String {
         "attn.k_sconv.weight_proj.weight" => format!("{prefix}attn.k_sconv.weight_proj"),
         "attn.v_sconv.weight_proj.weight" => format!("{prefix}attn.v_sconv.weight_proj"),
         "mlp.experts.weight" => format!("{prefix}mlp.experts.w13_weight"),
-        "mlp.experts.scale" => format!("{prefix}mlp.experts.w13_weight_scale"),
+        "mlp.experts.scale" | "mlp.experts.folded_scale" => {
+            format!("{prefix}mlp.experts.w13_weight_scale")
+        }
         "mlp.experts_down.weight" => format!("{prefix}mlp.experts.w2_weight"),
-        "mlp.experts_down.scale" => format!("{prefix}mlp.experts.w2_weight_scale"),
+        "mlp.experts_down.scale" | "mlp.experts_down.folded_scale" => {
+            format!("{prefix}mlp.experts.w2_weight_scale")
+        }
         // NVFP4's per-expert scale is not stored as one tensor: it is `amax` divided
         // by a denominator shared by the layer, so the loader computes it and this
         // name is the numerator.

@@ -322,7 +322,9 @@ fn test_moe_block_matches_a_host_reference() {
                 .collect();
             let a: Vec<f32> = (0..inter)
                 .map(|r| {
-                    cap(gu[r], gcap) * (1.0 / (1.0 + (-gu[r]).exp())) * cap(gu[inter + r], ucap)
+                    // gate and up are interleaved down w13's rows, not two halves
+                    let (g, u) = (gu[2 * r], gu[2 * r + 1]);
+                    cap(g, gcap) * (1.0 / (1.0 + (-g).exp())) * cap(u, ucap)
                 })
                 .collect();
             for (c, o) in want[tok * hid..(tok + 1) * hid].iter_mut().enumerate() {
@@ -521,8 +523,8 @@ fn test_decoder_layer_builds_and_runs() {
         "attn_sconv.weight",
         "mlp_norm.weight",
         "mlp.experts.weight",
-        "mlp.experts.scale",
-        "mlp.experts.scale2",
+        // NVFP4's two scale levels arrive folded into one f32 per block.
+        "mlp.experts.folded_scale",
         "mlp.experts_down.weight",
         "mlp_sconv.weight",
     ] {
@@ -665,11 +667,18 @@ fn test_the_last_layers_use_the_mxfp8_gather() {
             has("mlp.experts.weight"),
             "layer {layer} needs expert weights"
         );
-        assert!(has("mlp.experts.scale"), "layer {layer} needs block scales");
-        assert_eq!(
-            has("mlp.experts.scale2"),
-            !mxfp8,
-            "only NVFP4 has a per-expert scale (layer {layer})"
+        // NVFP4 folds its two scale levels at load time; MXFP8 keeps its E8M0 bytes.
+        assert!(
+            has(if mxfp8 {
+                "mlp.experts.scale"
+            } else {
+                "mlp.experts.folded_scale"
+            }),
+            "layer {layer} needs block scales"
+        );
+        assert!(
+            !has("mlp.experts.scale2"),
+            "the per-expert scale is folded into the block scale now (layer {layer})"
         );
     }
 }
@@ -732,10 +741,19 @@ fn test_head_scales_by_mup_and_softcaps() {
     let g = GraphRun::new(&[0, hid]);
     let partial = g.input(&[t, hid]);
     let out = build_head::<f32>(&cfg, &partial, &g.first, 0, mup);
+    let out_q = values(hid, 176);
+    // Feeds are in input-creation order: the empty block states, then the partial.
+    let no_blocks: Vec<f32> = Vec::new();
     let got = g.run(
         &out,
-        &[&x],
-        &[("norm.weight", &norm_w), ("unembed.weight", &unembed)],
+        &[&no_blocks, &x],
+        // The head opens with the final block-attention residual, which has its
+        // own query even when there are no committed block states.
+        &[
+            ("attn_res.output_query_0.query", &out_q),
+            ("norm.weight", &norm_w),
+            ("unembed.weight", &unembed),
+        ],
     );
     assert_eq!(got.len(), vocab, "a step produces one distribution");
 
@@ -875,8 +893,10 @@ fn test_layer_execution_speed() {
     let zeros_h = vec![0.0f32; kw * hid];
     let cache_kv = vec![0.0f32; cache * nkv * hd];
     let empty: Vec<f32> = Vec::new();
+    // In input-creation order. Layer 0 is a boundary, so the MLP's stack holds the
+    // layer input; without this feed every later one lands in the wrong buffer.
     let feeds: Vec<&[f32]> = vec![
-        &x, &empty, &zeros_kv, &zeros_kv, &zeros_h, &zeros_h, &cache_kv, &cache_kv,
+        &x, &empty, &x, &zeros_kv, &zeros_kv, &zeros_h, &zeros_h, &cache_kv, &cache_kv,
     ];
     let outs = [graph_to_dag[out.node_id]];
 
