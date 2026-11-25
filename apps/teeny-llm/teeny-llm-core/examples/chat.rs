@@ -279,11 +279,17 @@ impl Engine<'_> {
         let mut out = Vec::new();
         let mut shown = 0;
         let mut first_at: Option<f64> = None;
+        // The reply so far, decoded a token at a time rather than re-decoded in full.
+        let mut decoder = self.chat.stream_decoder();
+        let mut raw = String::new();
         loop {
             let tok = argmax(&logits);
             out.push(tok);
             first_at.get_or_insert_with(|| t1.elapsed().as_secs_f64());
-            let text = speech(&self.chat.decode(&out)?);
+            if let Some(piece) = decoder.step(tok)? {
+                raw.push_str(&piece);
+            }
+            let text = speech(&raw);
             if text.len() > shown && text.is_char_boundary(shown) {
                 on_token(&text[shown..])?;
                 shown = text.len();

@@ -34,6 +34,7 @@ pub mod chat;
 mod echo;
 mod engine;
 mod error;
+pub mod tokenizer;
 mod types;
 
 #[cfg(feature = "kernels")]

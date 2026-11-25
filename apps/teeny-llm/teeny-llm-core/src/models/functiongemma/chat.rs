@@ -22,11 +22,12 @@ use std::path::Path;
 
 use minijinja::{Environment, context};
 use serde_json::Value;
-use tokenizers::Tokenizer;
+
+use crate::tokenizer::{AddSpecial, HfTokenizer, SpecialTokens, StreamDecoder, Tokenizer};
 
 /// The tokenizer and chat template of a Hugging Face model folder.
 pub struct Chat {
-    tokenizer: Tokenizer,
+    tokenizer: HfTokenizer,
     env: Environment<'static>,
     bos: String,
 }
@@ -35,8 +36,7 @@ impl Chat {
     /// Loads `tokenizer.json`, `chat_template.jinja` and the BOS token from
     /// `special_tokens_map.json` in `dir`.
     pub fn load(dir: &Path) -> anyhow::Result<Self> {
-        let tokenizer = Tokenizer::from_file(dir.join("tokenizer.json"))
-            .map_err(|e| anyhow::anyhow!("loading {}/tokenizer.json: {e}", dir.display()))?;
+        let tokenizer = HfTokenizer::from_file(&dir.join("tokenizer.json"))?;
         let template = std::fs::read_to_string(dir.join("chat_template.jinja"))
             .map_err(|e| anyhow::anyhow!("reading {}/chat_template.jinja: {e}", dir.display()))?;
         let special: Value = serde_json::from_str(
@@ -82,18 +82,23 @@ impl Chat {
     pub fn prompt(&self, messages: &Value, tools: &Value) -> anyhow::Result<Vec<u32>> {
         let text = self.render(messages, tools)?;
         // The template writes the BOS token itself, so no special tokens are added.
-        let enc = self
-            .tokenizer
-            .encode(text, false)
-            .map_err(|e| anyhow::anyhow!("tokenizing prompt: {e}"))?;
-        Ok(enc.get_ids().to_vec())
+        Ok(self.tokenizer.encode(&text, AddSpecial::Omit)?)
     }
 
     /// Decodes `ids`, keeping special tokens (FunctionGemma's call markers are special).
     pub fn decode(&self, ids: &[u32]) -> anyhow::Result<String> {
-        self.tokenizer
-            .decode(ids, false)
-            .map_err(|e| anyhow::anyhow!("decoding: {e}"))
+        Ok(self.tokenizer.decode(ids, SpecialTokens::Keep)?)
+    }
+
+    /// A decoder for a reply as it is generated, keeping special tokens as [`Chat::decode`]
+    /// does.
+    pub fn stream_decoder(&self) -> Box<dyn StreamDecoder + Send + '_> {
+        self.tokenizer.stream_decoder(SpecialTokens::Keep)
+    }
+
+    /// The model's tokenizer.
+    pub fn tokenizer(&self) -> &HfTokenizer {
+        &self.tokenizer
     }
 }
 

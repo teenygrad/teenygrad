@@ -45,6 +45,10 @@ pub enum Error {
         operation: &'static str,
     },
 
+    /// Text could not be tokenized, or token ids decoded.
+    #[error("tokenizer: {0}")]
+    Tokenizer(String),
+
     /// A model's weights could not be found or are incomplete.
     #[error("model weights: {0}")]
     Weights(String),

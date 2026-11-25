@@ -26,8 +26,10 @@ functiongemma3 = [
   "dep:serde",
   "dep:teeny-kernels",
   "dep:teeny-test",
-  "dep:tokenizers",
+  "hf-tokenizer",
 ]
+# Hugging Face tokenizers (`tokenizer::HfTokenizer`), for models that ship a tokenizer.json.
+hf-tokenizer = ["dep:tokenizers"]
 # The kernels shared between models (`teeny_llm_core::kernels`). Enabled by every model
 # feature; on its own it builds the kernels without any model.
 kernels = ["dep:teeny-core", "dep:teeny-macros", "dep:teeny-triton"]
