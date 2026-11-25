@@ -20,8 +20,8 @@ cargo build -p teeny-core
 cargo build -p teeny-compiler
 cargo build -p teeny-torch
 
-# Build with compiler features (egg + z3 optimization)
-cargo build -p teeny-core --features compiler
+# Build a model into teeny-llm/teeny-api (a model feature plus a backend)
+cargo build -p teeny-api --features functiongemma3,cuda
 ```
 
 ## Testing
@@ -87,14 +87,16 @@ FXGraph (traced computation) → Compiler → Backends (LLVM/ndarray/Triton)
 
 ### Key Feature Flags
 
-- `teeny-core` has `compiler` feature enabling egg + z3 optimizer
-- `teeny-compiler` has `cpu` and `cuda` backend features
+- `teeny-core`: `std` (off by default, so the crate is `no_std`) and `training` (on by default)
+- `teeny-compiler`: `ndarray` (on by default); its egg e-graph optimizer is always built
+- `teeny-kernels` and `teeny-runtime`: a backend, `cuda` (default) or `riscv` (`qemu` runs RISC-V under QEMU); `teeny-kernels` also has `hardware`, for tests that run kernels on a device
+- `teeny-llm`, `teeny-api` and `teeny-bench`: a feature per model (`functiongemma3`) plus a backend; `teeny-api` also has a feature per domain (`llm` by default, `audio`, `image`)
 - Multiple crates have optional `ndarray` support
 
 ### Dependencies
 
 - **Async**: tokio (full features), smol
-- **Compiler**: egg (e-graph optimization), z3 (SMT solver, path-based at `../z3.rs/z3`)
+- **Compiler**: egg (e-graph optimization, in teeny-compiler, teeny-fxgraph and teeny-torch)
 - **Python**: pyo3 with extension-module
 - **Serialization**: safetensors, flatbuffers, protobuf
 - **NLP**: tokenizers
