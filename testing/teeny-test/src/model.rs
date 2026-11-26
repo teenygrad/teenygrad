@@ -635,6 +635,18 @@ impl<'a> RuntimeModel<'a> {
             })
     }
 
+    /// The shape the op declared for parameter slot `param_idx` of node `node_idx`,
+    /// which is what [`Self::load_param_f32`] checks a slot's data against.
+    pub fn param_shape(&self, node_idx: usize, param_idx: usize) -> Option<&[usize]> {
+        self.nodes
+            .get(node_idx)?
+            .op
+            .as_ref()?
+            .param_shapes
+            .get(param_idx)
+            .map(Vec::as_slice)
+    }
+
     /// Uploads `data` into parameter slot `param_idx` of node `node_idx`.
     pub fn load_param_f32(
         &mut self,

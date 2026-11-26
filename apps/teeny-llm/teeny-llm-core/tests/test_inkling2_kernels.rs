@@ -37,6 +37,7 @@ use teeny_llm_core::models::inkling2::kernels::{
     expert_gather::ExpertGatherOp,
     expert_gather_mxfp8::ExpertGatherMxfp8Op,
     expert_gather_nvfp4::ExpertGatherNvfp4Op,
+    expert_gemv_nvfp4::{ExpertGemvNvfp4Op, QuantRowsQ8Op, interleave_rows},
     gated_mul::GatedMulOp,
     l2_clip::{L2ClipOp, ScaledL2ClipOp},
     mix::MessageMixOp,
@@ -2067,4 +2068,200 @@ fn test_the_loader_feeds_the_packed_gather_correctly() {
     );
 
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `x` quantised per 16-element block as [`QuantRowsQ8Op`] does it: `[q | scales]`
+/// per row, `q = round(x * 127 / amax)` half away from zero, scale `amax / 127`.
+fn host_q8_rows(x: &[f32], k: usize) -> Vec<f32> {
+    let stride = k + k / 16;
+    let mut out = vec![0.0f32; x.len() / k * stride];
+    for (row, xs) in x.chunks(k).enumerate() {
+        for (b, block) in xs.chunks(16).enumerate() {
+            let amax = block.iter().fold(0.0f32, |m, v| m.max(v.abs()));
+            for (i, v) in block.iter().enumerate() {
+                let q = if amax > 0.0 { (v * 127.0 / amax).round() } else { 0.0 };
+                out[row * stride + b * 16 + i] = q;
+            }
+            out[row * stride + k + b] = if amax > 0.0 { amax / 127.0 } else { 0.0 };
+        }
+    }
+    out
+}
+
+/// Every block is quantised to integers in [-127, 127] with its own scale, and a
+/// block of zeros gets scale 0 rather than a division by zero.
+#[test]
+fn test_quant_rows_q8_matches_the_host() {
+    let (t, k) = (3usize, 64usize);
+    let mut x = values(t * k, 311);
+    // One all-zero block, and one with a value large enough to set the scale alone.
+    for v in &mut x[16..32] {
+        *v = 0.0;
+    }
+    x[70] = -9.5;
+    let want = host_q8_rows(&x, k);
+    let got = OneOp::new(&[t, k]).run(QuantRowsQ8Op::<f32>::new(k), &[], &[&x], &[]);
+    let stride = k + k / 16;
+    for row in 0..t {
+        for i in 0..k {
+            let (g, w) = (got[row * stride + i], want[row * stride + i]);
+            assert_eq!(g, w, "row {row} q[{i}]");
+            assert!(g.abs() <= 127.0 && g.fract() == 0.0, "row {row} q[{i}] = {g}");
+        }
+        assert_close(
+            "q8 block scales",
+            &got[row * stride + k..(row + 1) * stride],
+            &want[row * stride + k..(row + 1) * stride],
+            1e-6,
+        );
+    }
+    assert_eq!(got[k + 1], 0.0, "the zero block's scale");
+}
+
+/// Random packed NVFP4 weights and folded scales for `rows` rows of `k`: the
+/// row-major words the f32-weight gather and the loader start from, the matching
+/// f32 weights, and the folded scales.
+fn nvfp4_case(rows: usize, k: usize, seed: u64) -> (Vec<f32>, Vec<f32>, Vec<f32>) {
+    let bytes: Vec<u8> = values(rows * k / 2, seed)
+        .iter()
+        .map(|v| ((v + 1.0) * 127.9) as u8)
+        .collect();
+    let scales: Vec<f32> = values(rows * k / 16, seed + 1)
+        .iter()
+        .map(|v| 0.01 + 0.2 * v.abs())
+        .collect();
+    let words = pack_rows(&bytes.iter().map(|b| *b as f32).collect::<Vec<_>>(), k / 2);
+    let w: Vec<f32> = (0..rows * k)
+        .map(|i| {
+            let (row, col) = (i / k, i % k);
+            let byte = bytes[row * k / 2 + col / 2];
+            let nib = if col % 2 == 1 { byte >> 4 } else { byte & 0x0F };
+            E2M1[nib as usize] * scales[row * k / 16 + col / 16]
+        })
+        .collect();
+    (words, w, scales)
+}
+
+/// The integer projection, on the device, from `x` and row-major weights.
+fn run_gemv_nvfp4(
+    x: &[f32],
+    packed_ids: &[f32],
+    words: &[f32],
+    scales: &[f32],
+    (t, e, n, k, top_k): (usize, usize, usize, usize, usize),
+) -> Vec<f32> {
+    let xq = OneOp::new(&[t, k]).run(QuantRowsQ8Op::<f32>::new(k), &[], &[x], &[]);
+    let w_r = interleave_rows(words, e, n, k / 8, 32);
+    let half: Vec<f32> = scales.iter().map(|s| s * 0.5).collect();
+    let s_r = interleave_rows(&half, e, n, k / 16, 32);
+    let g = OneOp::new(&[t, k + k / 16]);
+    let ids = g.input(&[t, 2 * top_k]);
+    g.run(
+        ExpertGemvNvfp4Op::<f32>::new(e, n, k, top_k),
+        &[&ids],
+        &[&xq, packed_ids],
+        &[&w_r, &s_r],
+    )
+}
+
+/// The router's packed row: weights (unused here) then the ids.
+fn packed_router_ids(ids: &[usize], t: usize, top_k: usize) -> Vec<f32> {
+    let mut packed = vec![0.0f32; t * 2 * top_k];
+    for tok in 0..t {
+        for slot in 0..top_k {
+            packed[tok * 2 * top_k + top_k + slot] = ids[tok * top_k + slot] as f32;
+        }
+    }
+    packed
+}
+
+/// With the activations quantised the same way on both sides, the integer
+/// projection is exact up to the f32 scaling of each block's integer sum.
+#[test]
+fn test_nvfp4_gemv_matches_the_integer_host_reference() {
+    let (t, e, n, k, top_k) = (2usize, 3usize, 64usize, 64usize, 2usize);
+    let (words, w, scales) = nvfp4_case(e * n, k, 401);
+    let x = values(t * k, 402);
+    let ids = [2usize, 0, 1, 2];
+    let got = run_gemv_nvfp4(
+        &x,
+        &packed_router_ids(&ids, t, top_k),
+        &words,
+        &scales,
+        (t, e, n, k, top_k),
+    );
+
+    let xq = host_q8_rows(&x, k);
+    let stride = k + k / 16;
+    let mut want = vec![0.0f32; t * top_k * n];
+    for tok in 0..t {
+        for slot in 0..top_k {
+            let ex = ids[tok * top_k + slot];
+            for row in 0..n {
+                let r = ex * n + row;
+                let mut acc = 0.0f64;
+                for b in 0..k / 16 {
+                    // Exact: E2M1 times two is an integer, and so is q.
+                    let isum: i64 = (0..16)
+                        .map(|i| {
+                            let col = b * 16 + i;
+                            let w2 = (w[r * k + col] / scales[r * k / 16 + b] * 2.0).round() as i64;
+                            w2 * xq[tok * stride + col] as i64
+                        })
+                        .sum();
+                    acc += isum as f64
+                        * (scales[r * k / 16 + b] * 0.5) as f64
+                        * xq[tok * stride + k + b] as f64;
+                }
+                want[(tok * top_k + slot) * n + row] = acc as f32;
+            }
+        }
+    }
+    assert_close("integer nvfp4 projection", &got, &want, 1e-5);
+    assert!(want.iter().any(|v| v.abs() > 1e-3), "non-trivial output");
+}
+
+/// Against the f32 gather on the same weights, the only difference is the int8
+/// rounding of the activations: at most half a step of 1/127 of each block's
+/// largest value, summed over the row.
+#[test]
+fn test_nvfp4_gemv_tracks_the_f32_gather() {
+    let (t, e, n, k, top_k) = (2usize, 3usize, 32usize, 128usize, 2usize);
+    let (words, w, scales) = nvfp4_case(e * n, k, 501);
+    let x = values(t * k, 502);
+    let ids = [1usize, 2, 0, 1];
+    let packed = packed_router_ids(&ids, t, top_k);
+    let got = run_gemv_nvfp4(&x, &packed, &words, &scales, (t, e, n, k, top_k));
+
+    let gf = OneOp::new(&[t, k]);
+    let ids_f = gf.input(&[t, 2 * top_k]);
+    let want = gf.run(
+        ExpertGatherOp::<f32>::new(e, n, k, top_k),
+        &[&ids_f],
+        &[&x, &packed],
+        &[&w],
+    );
+    // Bound the error per output by its worst case: sum over k of |w| times half a
+    // quantisation step of x's block.
+    let xq = host_q8_rows(&x, k);
+    let stride = k + k / 16;
+    for tok in 0..t {
+        for slot in 0..top_k {
+            let r0 = ids[tok * top_k + slot] * n;
+            for row in 0..n {
+                let bound: f32 = (0..k)
+                    .map(|c| w[(r0 + row) * k + c].abs() * 0.5 * xq[tok * stride + k + c / 16])
+                    .sum::<f32>()
+                    * 1.001
+                    + 1e-6;
+                let i = (tok * top_k + slot) * n + row;
+                assert!(
+                    (got[i] - want[i]).abs() <= bound,
+                    "token {tok} slot {slot} row {row}: {} vs {} (bound {bound})",
+                    got[i],
+                    want[i]
+                );
+            }
+        }
+    }
 }
