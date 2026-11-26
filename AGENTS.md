@@ -9,6 +9,39 @@
 
 Changes reach `main` only through a reviewed pull request. A `PreToolUse` hook in `.claude/settings.json` blocks file edits while the default branch is checked out.
 
+The one exception is the orphan `beads` branch (see Issue Tracking below): it holds only issue data, shares no history with `main`, and is committed and pushed directly, never through a pull request.
+
+## Issue Tracking (beads)
+
+Issues are tracked with **br** (beads_rust). The tracker lives on an orphan `beads` branch of this repo, checked out as a git worktree at `.beads/`. `.beads` is gitignored on code branches, so issues never travel with feature branches and never conflict in their merges.
+
+One-time setup per clone:
+
+```bash
+git fetch origin beads
+git worktree add .beads beads
+```
+
+Day-to-day:
+
+```bash
+br ready                      # find available work
+br show <id>                  # view an issue
+br create ... --parent <id>   # file an issue (under an epic)
+br update <id> --claim        # claim work
+br close <id>                 # complete work
+br sync --flush-only          # export the DB to .beads/issues.jsonl
+git -C .beads add issues.jsonl
+git -C .beads commit -m "sync beads: <summary>"
+git -C .beads push
+```
+
+- Only `issues.jsonl`, `config.yaml`, `metadata.json` and `.gitignore` are tracked on the `beads` branch; `beads.db`, lock files and `last-touched` stay local.
+- `br` never runs git itself: after `br sync --flush-only`, commit and push from `.beads/` as above.
+- Never add `.beads` to a code branch, and never merge `beads` into `main` (or the reverse).
+- The pre-push hook skips clippy when only the `beads` branch is pushed.
+- This repo is public, so everything written in an issue is public.
+
 ## Rust Engineering Standards
 
 When making Rust changes, prefer correctness, clarity, and maintainability over cleverness.

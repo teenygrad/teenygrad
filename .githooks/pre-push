@@ -3,9 +3,27 @@
 # job, so lint regressions (e.g. a new clippy lint tripping on old code) are
 # caught before a push triggers CI, not after.
 #
+# Pushes that only update the orphan `beads` branch (the issue tracker,
+# checked out as a worktree at .beads -- see AGENTS.md) carry no code, so
+# clippy is skipped for them.
+#
 # Enabled via `git config core.hooksPath .githooks` (see .githooks/README.md).
 
 set -e
+
+# git feeds one "<local ref> <local sha> <remote ref> <remote sha>" line per
+# ref being pushed on stdin.
+code_push=0
+while read -r _local_ref _local_sha remote_ref _remote_sha; do
+    if [ "$remote_ref" != "refs/heads/beads" ]; then
+        code_push=1
+    fi
+done
+
+if [ "$code_push" -eq 0 ]; then
+    echo "pre-push: only the beads branch is being pushed; skipping clippy"
+    exit 0
+fi
 
 echo "pre-push: cargo clippy --workspace --exclude teeny-torch -- -D warnings"
 cargo clippy --workspace --exclude teeny-torch -- -D warnings
