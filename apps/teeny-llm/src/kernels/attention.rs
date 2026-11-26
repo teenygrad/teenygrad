@@ -26,8 +26,8 @@
 //! out[t, h] = sum_j softmax_j(q[t, h] . k[j, kvh] * scale) v[j, kvh],  kvh = h / (H / KVH)
 //! ```
 //!
-//! `P` is a launch argument read from a shared [`PastLen`] the host sets before each
-//! run. Each query loops only over the keys it can see (causal, and inside the
+//! `P` is a launch argument read from a shared [`PastLen`], which the KV cache keeps
+//! at its length. Each query loops only over the keys it can see (causal, and inside the
 //! window). The softmax is online, with a one-element running max and sum so each key
 //! costs one `exp`; one program per `(t, h)`, lanes on `head_dim`.
 //!
@@ -173,29 +173,14 @@ pub fn gqa_attention_forward<T: Triton, D: Float, const BLOCK: i32>(
 use core::marker::PhantomData;
 use std::any::Any;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use teeny_core::device::program::ArgVisitor;
 use teeny_core::dtype::FloatBytes;
 use teeny_core::graph::{CustomOp, Shape};
 use teeny_core::model::{RawPtr, RuntimeOp};
 
-/// The number of tokens already in the KV cache, shared between the host loop (which
-/// sets it before each run) and every attention op of a compiled step graph (which
-/// pass it to their kernels).
-#[derive(Clone, Default, Debug)]
-pub struct PastLen(Arc<AtomicUsize>);
-
-impl PastLen {
-    /// Sets the past length for the next run.
-    pub fn set(&self, n: usize) {
-        self.0.store(n, Ordering::SeqCst);
-    }
-
-    /// The current past length.
-    pub fn get(&self) -> usize {
-        self.0.load(Ordering::SeqCst)
-    }
-}
+/// The number of positions already in the KV cache: the cache keeps it up to date, and
+/// every attention op of a compiled step graph passes it to its kernel.
+pub use teeny_kvcache::PastLen;
 
 /// Attention geometry.
 #[derive(Clone, Copy, Debug)]

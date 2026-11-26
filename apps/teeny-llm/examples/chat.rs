@@ -262,14 +262,13 @@ impl Engine<'_> {
         mut on_token: impl FnMut(&str) -> anyhow::Result<()>,
     ) -> anyhow::Result<(String, Timings)> {
         let prompt = self.chat.prompt(messages, tools)?;
+        // What `feed` runs: all but the shared prefix, and at least one token.
         let fresh = prompt.len()
             - self
                 .session
-                .tokens
-                .iter()
-                .zip(&prompt)
-                .take_while(|(a, b)| a == b)
-                .count();
+                .cache
+                .shared(&prompt)
+                .min(prompt.len().saturating_sub(1));
         let mut timings = Recorder::new();
         timings.begin_prompt();
         let mut logits = self
@@ -298,9 +297,9 @@ impl Engine<'_> {
                 break;
             }
             anyhow::ensure!(
-                self.session.cache.len < self.session.cache.capacity,
+                self.session.cache.len() < self.session.cache.capacity(),
                 "the conversation reached its {} token limit (--context); start a new one",
-                self.session.cache.capacity
+                self.session.cache.capacity()
             );
             logits = self.session.step(self.device, &mut self.one, &[tok])?;
         }
@@ -491,8 +490,8 @@ fn handle_chat(
         })?;
         raw = text;
         stats = s;
-        used = engine.session.cache.len;
-        total = engine.session.cache.capacity;
+        used = engine.session.cache.len();
+        total = engine.session.cache.capacity();
 
         let calls = parse_calls(&raw)?;
         if calls.is_empty() || round == MAX_ROUNDS {
@@ -695,7 +694,7 @@ fn terminal_reply(
     println!();
     eprintln!(
         "{}",
-        stats.report(engine.session.cache.len, engine.session.cache.capacity)
+        stats.report(engine.session.cache.len(), engine.session.cache.capacity())
     );
     Ok(reply)
 }
@@ -739,9 +738,9 @@ fn main() -> anyhow::Result<()> {
         &weights,
         args.chunk,
         args.context,
-        &session.past,
+        &session.past(),
     )?;
-    let one = CompiledStep::new(&device, &cfg, &weights, 1, args.context, &session.past)?;
+    let one = CompiledStep::new(&device, &cfg, &weights, 1, args.context, &session.past())?;
     drop(weights);
     let names: Vec<&str> = tools
         .as_array()

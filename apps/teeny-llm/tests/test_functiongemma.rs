@@ -118,9 +118,9 @@ fn test_functiongemma_matches_pytorch() -> anyhow::Result<()> {
         &weights,
         prompt.len(),
         capacity,
-        &session.past,
+        &session.past(),
     )?;
-    let mut decode = CompiledStep::new(&device, &cfg, &weights, 1, capacity, &session.past)?;
+    let mut decode = CompiledStep::new(&device, &cfg, &weights, 1, capacity, &session.past())?;
 
     let mut worst = 0.0f32;
     let mut logits = session.step(&device, &mut prefill, &prompt)?;

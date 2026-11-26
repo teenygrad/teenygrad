@@ -19,7 +19,7 @@
 //!
 //! [`model::build_step`] records one decoding step as a teeny graph; the host runs it
 //! for the prompt and then once per generated token, appending each step's keys and
-//! values to a [`KvCache`] and feeding RoPE tables from
+//! values to a [`KvCache`](teeny_kvcache::KvCache) and feeding RoPE tables from
 //! [`rope_tables`](crate::kernels::rope::rope_tables).
 //!
 //! The step graph uses the shared kernels in [`crate::kernels`] (attention, linear,
@@ -48,51 +48,3 @@ pub use config::GemmaConfig;
 pub use serve::FunctionGemmaChat;
 #[cfg(any(feature = "cuda", feature = "riscv"))]
 pub(crate) use serve::load;
-
-/// The host-side KV cache: per layer, `capacity` rows of `kv_heads * head_dim`, the
-/// first `len` valid.
-pub struct KvCache {
-    /// Keys per layer.
-    pub k: Vec<Vec<f32>>,
-    /// Values per layer.
-    pub v: Vec<Vec<f32>>,
-    /// Row width (`kv_heads * head_dim`).
-    pub row: usize,
-    /// Rows per layer.
-    pub capacity: usize,
-    /// Valid rows.
-    pub len: usize,
-}
-
-impl KvCache {
-    /// An empty cache for `cfg` with room for `capacity` tokens.
-    pub fn new(cfg: &GemmaConfig, capacity: usize) -> Self {
-        let row = cfg.num_key_value_heads * cfg.head_dim;
-        let layer = vec![0.0; capacity * row];
-        Self {
-            k: vec![layer.clone(); cfg.num_hidden_layers],
-            v: vec![layer; cfg.num_hidden_layers],
-            row,
-            capacity,
-            len: 0,
-        }
-    }
-
-    /// Appends a step's keys and values (`k[l]`, `v[l]`, each `[t, row]`).
-    pub fn append(&mut self, k: &[&[f32]], v: &[&[f32]]) -> anyhow::Result<()> {
-        let t = k[0].len() / self.row;
-        anyhow::ensure!(
-            self.len + t <= self.capacity,
-            "KV cache full: {} + {t} tokens exceed its {} rows",
-            self.len,
-            self.capacity
-        );
-        let at = self.len * self.row;
-        for l in 0..self.k.len() {
-            self.k[l][at..at + k[l].len()].copy_from_slice(k[l]);
-            self.v[l][at..at + v[l].len()].copy_from_slice(v[l]);
-        }
-        self.len += t;
-        Ok(())
-    }
-}

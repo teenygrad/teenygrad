@@ -32,7 +32,7 @@ functiongemma3 = [
 hf-tokenizer = ["dep:tokenizers"]
 # The kernels shared between models (`teeny_llm::kernels`). Enabled by every model
 # feature; on its own it builds the kernels without any model.
-kernels = ["dep:teeny-core", "dep:teeny-macros", "dep:teeny-triton"]
+kernels = ["dep:teeny-core", "dep:teeny-kvcache", "dep:teeny-macros", "dep:teeny-triton"]
 # The backend models compile and run on. Pick one, with a model feature.
 cuda = ["teeny-test?/cuda", "teeny-kernels?/cuda"]
 riscv = ["teeny-test?/riscv", "teeny-kernels?/riscv"]
@@ -52,6 +52,7 @@ minijinja-contrib = { workspace = true, optional = true }
 safetensors = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
 teeny-core = { workspace = true, features = ["std"], optional = true }
+teeny-kvcache = { workspace = true, optional = true }
 teeny-macros = { workspace = true, optional = true }
 teeny-triton = { workspace = true, optional = true }
 # `training` only because teeny-kernels does not build warning-free without it (its graph

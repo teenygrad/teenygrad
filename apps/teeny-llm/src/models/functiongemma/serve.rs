@@ -264,7 +264,7 @@ impl Worker {
             .weights
             .as_ref()
             .ok_or_else(|| Error::Weights("the weights were already released".into()))?;
-        let capacity = self.session.cache.capacity;
+        let capacity = self.session.cache.capacity();
         let compile = |tokens: usize| {
             options.report(&format!("compiling the {tokens}-token step"));
             CompiledStep::new(
@@ -273,7 +273,7 @@ impl Worker {
                 weights,
                 tokens,
                 capacity,
-                &self.session.past,
+                &self.session.past(),
             )
             .map_err(|e| Error::Inference(format!("compiling the {tokens}-token step: {e:#}")))
         };
@@ -305,14 +305,12 @@ impl Worker {
                 return;
             }
         };
+        // What `feed` keeps: the shared prefix, less the token it must run.
         let cached = self
             .session
-            .tokens
-            .iter()
-            .zip(&prompt)
-            .take_while(|(a, b)| a == b)
-            .count()
-            .min(prompt.len() - 1);
+            .cache
+            .shared(&prompt)
+            .min(prompt.len().saturating_sub(1));
         let mut timings = Recorder::accepted_at(accepted);
         timings.begin_prompt();
         let mut logits = match self.session.feed(device, chunk, one, &prompt) {
@@ -327,7 +325,7 @@ impl Worker {
             return;
         }
 
-        let room = self.session.cache.capacity - self.session.cache.len;
+        let room = self.session.cache.capacity() - self.session.cache.len();
         let limit = plan.max_tokens.map_or(room, |n| n.min(room));
         let mut reply = ReplyAssembler::new(plan);
         let mut decoder = self.chat.stream_decoder();
@@ -385,7 +383,7 @@ impl Worker {
             .chat
             .prompt(messages, tools)
             .map_err(|e| Error::InvalidRequest(format!("rendering the chat template: {e:#}")))?;
-        let capacity = self.session.cache.capacity;
+        let capacity = self.session.cache.capacity();
         if prompt.len() >= capacity {
             return Err(Error::InvalidRequest(format!(
                 "the conversation is {} tokens, which leaves no room for a reply in the \

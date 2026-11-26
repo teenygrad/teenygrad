@@ -23,10 +23,11 @@ use std::path::Path;
 use teeny_core::graph::Graph;
 use teeny_core::model::LoweringMode;
 use teeny_kernels::graph::TritonLowering;
+use teeny_kvcache::{HostKvCache, KvCache, KvLayout, PrefixCache};
 use teeny_test::model::{RuntimeModel, runtime};
 
 use super::model::{StepGraph, build_step};
-use super::{GemmaConfig, KvCache, PastLen};
+use super::{GemmaConfig, PastLen};
 use crate::kernels::rope::rope_tables;
 
 /// A checkpoint's tensors as f32, by `state_dict` key.
@@ -169,28 +170,41 @@ impl<'d> CompiledStep<'d> {
     }
 }
 
-/// Gemma generation state: the config, the KV cache and the shared past length.
+/// Gemma generation state: the config and the KV cache, with the tokens it holds.
 pub struct Session {
     /// The model config.
     pub cfg: GemmaConfig,
-    /// The KV cache.
-    pub cache: KvCache,
-    /// The past length every compiled step reads.
-    pub past: PastLen,
-    /// The tokens whose keys and values are in the cache, in order.
-    pub tokens: Vec<u32>,
+    /// The KV cache and the tokens whose keys and values it holds.
+    pub cache: PrefixCache,
 }
 
 impl Session {
-    /// A session with room for `capacity` tokens.
+    /// A session over a [`HostKvCache`] with room for `capacity` tokens.
     pub fn new(cfg: GemmaConfig, capacity: usize) -> Self {
-        let cache = KvCache::new(&cfg, capacity);
+        let cache = HostKvCache::new(Self::layout(&cfg, capacity));
+        Self::with_cache(cfg, Box::new(cache))
+    }
+
+    /// A session over `cache`, which must have [`Session::layout`]'s shape.
+    pub fn with_cache(cfg: GemmaConfig, cache: Box<dyn KvCache>) -> Self {
         Self {
             cfg,
-            cache,
-            past: PastLen::default(),
-            tokens: Vec::new(),
+            cache: PrefixCache::new(cache),
         }
+    }
+
+    /// The cache shape a `cfg` model with room for `capacity` tokens needs.
+    pub fn layout(cfg: &GemmaConfig, capacity: usize) -> KvLayout {
+        KvLayout {
+            layers: cfg.num_hidden_layers,
+            row: cfg.num_key_value_heads * cfg.head_dim,
+            capacity,
+        }
+    }
+
+    /// The past length every compiled step reads; the cache keeps it up to date.
+    pub fn past(&self) -> PastLen {
+        self.cache.past_len()
     }
 
     /// Brings the cache up to `prompt` and returns its last token's logits. Cached
@@ -206,16 +220,8 @@ impl Session {
         prompt: &[u32],
     ) -> anyhow::Result<Vec<f32>> {
         anyhow::ensure!(!prompt.is_empty(), "empty prompt");
-        let mut keep = self
-            .tokens
-            .iter()
-            .zip(prompt)
-            .take_while(|(a, b)| a == b)
-            .count();
         // At least one token must run, to produce the logits.
-        keep = keep.min(prompt.len() - 1);
-        self.cache.len = keep;
-        self.tokens.truncate(keep);
+        let keep = self.cache.reuse(prompt, 1);
 
         let mut rest = &prompt[keep..];
         let mut logits = Vec::new();
@@ -250,7 +256,7 @@ impl Session {
             step.tokens,
             ids.len()
         );
-        let p0 = self.cache.len;
+        let p0 = self.cache.len();
         let positions: Vec<usize> = (p0..p0 + ids.len()).collect();
         let hd = self.cfg.head_dim;
         let (cl, sl) = rope_tables(self.cfg.rope_local_base_freq, hd, &positions);
@@ -258,11 +264,12 @@ impl Session {
         let idf: Vec<f32> = ids.iter().map(|&i| i as f32).collect();
 
         let mut feed: Vec<&[f32]> = vec![&idf, &cl, &sl, &cg, &sg];
+        let cache = self.cache.cache();
         for l in 0..self.cfg.num_hidden_layers {
-            feed.push(&self.cache.k[l]);
-            feed.push(&self.cache.v[l]);
+            feed.push(cache.keys(l));
+            feed.push(cache.values(l));
         }
-        self.past.set(p0);
+        // The attention ops read `p0` from the cache's past length while the step runs.
         let mut out = step.run(device, &feed)?;
         let logits = std::mem::take(&mut out[0]);
         let k: Vec<&[f32]> = (0..self.cfg.num_hidden_layers)
@@ -271,8 +278,7 @@ impl Session {
         let v: Vec<&[f32]> = (0..self.cfg.num_hidden_layers)
             .map(|l| out[2 + 2 * l].as_slice())
             .collect();
-        self.cache.append(&k, &v)?;
-        self.tokens.extend_from_slice(ids);
+        self.cache.append(ids, &k, &v)?;
         Ok(logits)
     }
 }

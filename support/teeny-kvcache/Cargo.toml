@@ -1,0 +1,15 @@
+[package]
+name = "teeny-kvcache"
+version.workspace = true
+edition.workspace = true
+description = "Pluggable key/value caches for teenygrad's autoregressive models: a KvCache trait, a host-memory cache, and prefix reuse across requests."
+repository.workspace = true
+license.workspace = true
+homepage.workspace = true
+readme = "README.md"
+documentation = "https://docs.teenygrad.org/api/teenygrad/teeny_kvcache/"
+keywords = ["kv-cache", "llm", "inference", "transformer", "teenygrad"]
+categories = ["science", "caching"]
+
+[dependencies]
+thiserror = { workspace = true, features = ["std"] }
