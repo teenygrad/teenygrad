@@ -37,7 +37,7 @@ use teeny_llm_core::models::inkling2::kernels::{
     expert_gather::ExpertGatherOp,
     expert_gather_mxfp8::ExpertGatherMxfp8Op,
     expert_gather_nvfp4::ExpertGatherNvfp4Op,
-    expert_gemv_nvfp4::{ExpertGemvNvfp4Op, QuantRowsQ8Op, ROWS, interleave_rows},
+    expert_gemv_nvfp4::{ExpertGemvNvfp4Op, QuantRowsQ8Op, ROWS, interleave_row_bytes, interleave_rows},
     gated_mul::GatedMulOp,
     l2_clip::{L2ClipOp, ScaledL2ClipOp},
     mix::MessageMixOp,
@@ -2152,7 +2152,7 @@ fn run_gemv_nvfp4(
     (t, e, n, k, top_k): (usize, usize, usize, usize, usize),
 ) -> Vec<f32> {
     let xq = OneOp::new(&[t, k]).run(QuantRowsQ8Op::<f32>::new(k), &[], &[x], &[]);
-    let w_r = interleave_rows(words, e, n, k / 8, ROWS);
+    let w_r = interleave_row_bytes(words, e, n, k / 2, ROWS);
     let half: Vec<f32> = scales.iter().map(|s| s * 0.5).collect();
     let s_r = interleave_rows(&half, e, n, k / 16, ROWS);
     let g = OneOp::new(&[t, k + k / 16]);

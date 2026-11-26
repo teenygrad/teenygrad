@@ -41,7 +41,7 @@
 //! rows of one expert, and the reduction runs down `k` with one activation per step
 //! broadcast across the rows -- a vector-times-scalar multiply-accumulate, with no
 //! horizontal reduction anywhere. That needs the weights of [`ROWS`] rows at the
-//! same `k` to be adjacent, which [`interleave_rows`] arranges at load time.
+//! same `k` to be adjacent, which [`interleave_row_bytes`] arranges at load time.
 
 use teeny_core::dtype::{AddOffsets, Comparison, Float, Tensor};
 use teeny_macros::kernel;
@@ -49,10 +49,10 @@ use teeny_triton::triton::*;
 
 /// Output rows per program, and the interleave width of the repacked weights.
 ///
-/// 16 i32 lanes are two vector registers at VLEN=256. The reduction's eight
-/// nibbles per word are independent, so the compiler computes all their weights
-/// before using them; at 32 rows that is the whole register file and spills.
-pub const ROWS: usize = 16;
+/// The kernel works a byte at a time, in 8-bit lanes for the weights and 16-bit
+/// lanes for the sums: 32 rows are one vector register of bytes and two of sums at
+/// VLEN=256.
+pub const ROWS: usize = 32;
 
 /// Elements per activation block, and per weight scale.
 pub const QBLOCK: usize = 16;
@@ -123,7 +123,7 @@ pub fn quant_rows_q8_forward<T: Triton, D: Float, const BLOCK: i32>(
 #[kernel]
 pub fn expert_gemv_nvfp4_forward<T: Triton, D: Float, const ROWS: i32>(
     xq_ptr: InPtr<T::Pointer<f32>>,
-    w_ptr: InPtr<T::Pointer<D>>,
+    w_ptr: InPtr<T::Pointer<u8>>,
     s_ptr: InPtr<T::Pointer<D>>,
     ids_ptr: InPtr<T::Pointer<f32>>,
     y_ptr: OutPtr<T::Pointer<D>>,
@@ -145,6 +145,11 @@ pub fn expert_gemv_nvfp4_forward<T: Triton, D: Float, const ROWS: i32>(
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
     T::Pointer<f32>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<f32>>>,
+    T::Pointer<u8>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<u8>>>,
+    T::Tensor<u8>: core::ops::BitAnd<u8, Output = T::Tensor<u8>>,
+    T::Tensor<u8>: core::ops::Shr<u8, Output = T::Tensor<u8>>,
+    T::Tensor<i16>: core::ops::Add<T::Tensor<i16>, Output = T::Tensor<i16>>,
+    T::Tensor<i16>: core::ops::Mul<i16, Output = T::Tensor<i16>>,
 {
     let rb = T::program_id(Axis::X);
     let slot = T::program_id(Axis::Y);
@@ -166,42 +171,44 @@ pub fn expert_gemv_nvfp4_forward<T: Triton, D: Float, const ROWS: i32>(
         m,
         T::where_(e.eq(1), normal, T::where_(e.eq(2), normal * 2, normal * 4)),
     );
-    let lut = T::where_((code >> 3).eq(1), T::zeros::<i32>(&[16]) - mag, mag);
+    let lut = T::cast::<i32, i8>(
+        T::where_((code >> 3).eq(1), T::zeros::<i32>(&[16]) - mag, mag),
+        None,
+        false,
+    );
 
-    // The rows' words for word j are adjacent: [expert][row block][word][row].
-    let words_per_row = K / 8;
+    // The rows' bytes for byte j are adjacent: [expert][row block][byte][row]. A
+    // byte holds a row's elements 2j (low nibble) and 2j + 1 (high nibble).
+    let bytes_per_row = K / 2;
     let blocks = K / 16;
     let row_block = expert * (N / ROWS) + rb;
-    let wbase = row_block * words_per_row * ROWS;
+    let wbase = row_block * bytes_per_row * ROWS;
     let sbase = row_block * blocks * ROWS;
     let xbase = token * X_STRIDE;
 
     let mut acc = T::zeros::<D>(&[ROWS]);
     for b in 0..blocks {
-        let mut iacc = T::zeros::<i32>(&[ROWS]);
-        // Two packed words cover a 16-element block, eight nibbles each.
-        for h in 0..2 {
-            let j = b * 2 + h;
-            let words = T::cast::<D, i32>(
-                T::load(
-                    w_ptr.add_offsets(lanes + (wbase + j * ROWS)),
-                    None,
-                    None,
-                    &[],
-                    None,
-                    None,
-                    None,
-                    true,
-                ),
+        // A block sums to at most 16 * 12 * 127 = 24384, so 16 bits hold it exactly.
+        let mut iacc = T::zeros::<i16>(&[ROWS]);
+        for t in 0..8 {
+            let j = b * 8 + t;
+            let byte = T::load(
+                w_ptr.add_offsets(lanes + (wbase + j * ROWS)),
                 None,
-                true,
+                None,
+                &[],
+                None,
+                None,
+                None,
+                false,
             );
-            for t in 0..8 {
-                let nib = (words >> (t * 4)) & 0xF;
-                let w = T::gather(lut, nib, 0);
-                let xk = T::load_scalar_f32_as_i32(xq_ptr, xbase + j * 8 + t);
-                iacc = iacc + w * xk;
-            }
+            let lo = T::cast::<u8, i32>(byte & 15u8, None, false);
+            let hi = T::cast::<u8, i32>(byte >> 4u8, None, false);
+            let wl = T::cast::<i8, i16>(T::gather(lut, lo, 0), None, false);
+            let wh = T::cast::<i8, i16>(T::gather(lut, hi, 0), None, false);
+            let x0 = T::load_scalar_f32_as_i32(xq_ptr, xbase + j * 2) as i16;
+            let x1 = T::load_scalar_f32_as_i32(xq_ptr, xbase + j * 2 + 1) as i16;
+            iacc = iacc + wl * x0 + wh * x1;
         }
         let ws = T::load(
             s_ptr.add_offsets(lanes + (sbase + b * ROWS)),
@@ -223,7 +230,7 @@ pub fn expert_gemv_nvfp4_forward<T: Triton, D: Float, const ROWS: i32>(
             None,
             false,
         );
-        acc = acc + T::cast::<i32, D>(iacc, None, false) * ws * T::cast::<f32, D>(xs, None, false);
+        acc = acc + T::cast::<i16, D>(iacc, None, false) * ws * T::cast::<f32, D>(xs, None, false);
     }
     T::store(
         y_ptr.add_offsets(lanes + (slot * N + rb * ROWS)),
@@ -235,11 +242,49 @@ pub fn expert_gemv_nvfp4_forward<T: Triton, D: Float, const ROWS: i32>(
     );
 }
 
+/// Interleaves the packed NVFP4 bytes of `[experts, n]` rows, `row_bytes` each and
+/// stored four to an f32 word, by blocks of `rows` rows, so the `rows` bytes at each
+/// byte column are adjacent: `[experts, n / rows, row_bytes, rows]` bytes, again four
+/// to a word.
+///
+/// This is the layout [`expert_gemv_nvfp4_forward`] reads with one contiguous byte
+/// load per column.
+pub fn interleave_row_bytes(
+    words: &[f32],
+    experts: usize,
+    n: usize,
+    row_bytes: usize,
+    rows: usize,
+) -> Vec<f32> {
+    let row_words = row_bytes.div_ceil(4);
+    assert_eq!(words.len(), experts * n * row_words, "interleave bytes: size");
+    assert_eq!(n % rows, 0, "interleave bytes: {n} rows do not split into blocks of {rows}");
+    let byte = |e: usize, r: usize, b: usize| -> u8 {
+        words[(e * n + r) * row_words + b / 4].to_bits().to_le_bytes()[b % 4]
+    };
+    let mut out = vec![0u8; experts * n * row_bytes];
+    for e in 0..experts {
+        for rb in 0..n / rows {
+            for b in 0..row_bytes {
+                for r in 0..rows {
+                    let to = ((e * (n / rows) + rb) * row_bytes + b) * rows + r;
+                    out[to] = byte(e, rb * rows + r, b);
+                }
+            }
+        }
+    }
+    out.resize(out.len().div_ceil(4) * 4, 0);
+    out.chunks(4)
+        .map(|c| f32::from_bits(u32::from_le_bytes([c[0], c[1], c[2], c[3]])))
+        .collect()
+}
+
 /// Interleaves `rows`-row blocks of `[experts, n, width]` so the `rows` values at
 /// each column are adjacent: `[experts, n / rows, width, rows]`.
 ///
-/// Applied to the packed words and to the folded scales, this is the layout
-/// [`expert_gemv_nvfp4_forward`] reads with one contiguous load per column.
+/// Applied to the folded scales, this is the layout [`expert_gemv_nvfp4_forward`]
+/// reads with one contiguous load per block; the weights take
+/// [`interleave_row_bytes`].
 pub fn interleave_rows(src: &[f32], experts: usize, n: usize, width: usize, rows: usize) -> Vec<f32> {
     assert_eq!(src.len(), experts * n * width, "interleave: size");
     assert_eq!(n % rows, 0, "interleave: {n} rows do not split into blocks of {rows}");
@@ -465,7 +510,27 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for ExpertGemvNvfp4Runtime
 
 #[cfg(test)]
 mod tests {
-    use super::interleave_rows;
+    use super::{interleave_row_bytes, interleave_rows};
+
+    #[test]
+    fn interleave_bytes_puts_each_byte_column_of_a_row_block_together() {
+        // One expert, four rows of eight bytes (two words), in blocks of two rows.
+        let row = |r: u8| -> Vec<f32> {
+            (0..2u8)
+                .map(|w| {
+                    let b: [u8; 4] = core::array::from_fn(|i| r * 16 + w * 4 + i as u8);
+                    f32::from_bits(u32::from_le_bytes(b))
+                })
+                .collect()
+        };
+        let words: Vec<f32> = (0..4).flat_map(row).collect();
+        let out = interleave_row_bytes(&words, 1, 4, 8, 2);
+        let bytes: Vec<u8> = out.iter().flat_map(|w| w.to_bits().to_le_bytes()).collect();
+        // Rows 0 and 1, byte by byte: (0, 16), (1, 17), ...
+        assert_eq!(&bytes[..6], &[0, 16, 1, 17, 2, 18]);
+        // Rows 2 and 3 start at byte 16: (32, 48), (33, 49), ...
+        assert_eq!(&bytes[16..20], &[32, 48, 33, 49]);
+    }
 
     #[test]
     fn interleave_puts_each_column_of_a_row_block_together() {

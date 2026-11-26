@@ -212,6 +212,38 @@ impl Mul<i32> for LlvmI32Tensor {
     }
 }
 
+// Byte and 16-bit lanes, for kernels that take packed 4-bit values apart a byte at
+// a time and accumulate their products in 16 bits.
+impl BitAnd<u8> for LlvmTensor<u8> {
+    type Output = LlvmTensor<u8>;
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn bitand(self, _rhs: u8) -> Self::Output {
+        LlvmTensor(0 as *mut u8)
+    }
+}
+
+impl Shr<u8> for LlvmTensor<u8> {
+    type Output = LlvmTensor<u8>;
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn shr(self, _rhs: u8) -> Self::Output {
+        LlvmTensor(0 as *mut u8)
+    }
+}
+
+impl Mul<i16> for LlvmTensor<i16> {
+    type Output = LlvmTensor<i16>;
+
+    #[inline(never)]
+    #[allow(clippy::zero_ptr)]
+    fn mul(self, _rhs: i16) -> Self::Output {
+        LlvmTensor(0 as *mut i16)
+    }
+}
+
 impl Shr<i32> for LlvmI32Tensor {
     type Output = LlvmI32Tensor;
 
