@@ -107,9 +107,12 @@ use teeny_core::dtype::FloatBytes;
 use teeny_core::graph::{CustomOp, Shape};
 use teeny_core::model::{RawPtr, RuntimeOp};
 
-// 128 lanes. 1024 at `e32` with VLEN=256 is 128 vector registers, which only made
-// sense while a per-lane `expf` call dominated everything; see `gated_mul`.
-const BLOCK: i32 = 128;
+// 1024, not 128. At 128 lanes the in-lane exponential gives wrong output on the K3
+// (the model answers with no visible text) while the kernel tests pass under qemu;
+// 1024 is correct on the board and no slower. Why 128 fails is not yet known; it
+// points at teenyc's RVV lowering rather than the arithmetic, which is the same as
+// `gated_mul`'s. Do not shrink this without a board run.
+const BLOCK: i32 = 1024;
 
 /// Graph-level softcap, shape preserving.
 pub struct SoftcapOp<D: FloatBytes + Send + Sync + 'static> {
