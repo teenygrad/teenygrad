@@ -50,6 +50,7 @@ use teeny_llm::models::inkling2::kernels::{
     softcap::SoftcapOp,
     swiglu::SwigluOp,
 };
+use teeny_llm::kernels::linear::{Linear4Bf16Op, Linear4Op, pack_bf16_halves};
 use teeny_llm::models::inkling2::weights::{Checkpoint, pack_rows};
 use teeny_test::model::{RuntimeModel, runtime};
 
@@ -2264,4 +2265,22 @@ fn test_nvfp4_gemv_tracks_the_f32_gather() {
             }
         }
     }
+}
+
+/// The bf16-packed linear computes what the f32 linear does on the same weights:
+/// unpacking a bf16 is exact, so only the order of the sums differs.
+#[test]
+fn test_bf16_linear_matches_the_f32_linear() {
+    let (m, k, n) = (3usize, 96usize, 8usize);
+    // Weights that are exactly bf16: an f32 with its low 16 bits cleared.
+    let w: Vec<f32> = values(n * k, 601)
+        .iter()
+        .map(|v| f32::from_bits(v.to_bits() & 0xFFFF_0000))
+        .collect();
+    let x = values(m * k, 602);
+    let want = OneOp::new(&[m, k]).run(Linear4Op::<f32>::new(k, n, 16), &[], &[&x], &[&w]);
+    let packed = pack_bf16_halves(&w, n, k).expect("bf16 weights pack");
+    let got = OneOp::new(&[m, k]).run(Linear4Bf16Op::<f32>::new(k, n, 16), &[], &[&x], &[&packed]);
+    assert_close("bf16 linear vs f32 linear", &got, &want, 1e-5);
+    assert!(want.iter().any(|v| v.abs() > 1e-3), "non-trivial output");
 }

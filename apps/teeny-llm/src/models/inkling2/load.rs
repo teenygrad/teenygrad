@@ -33,6 +33,7 @@
 use super::runner::checkpoint_name;
 use super::kernels::expert_gemv_nvfp4::{ROWS, interleave_rows};
 use super::weights::{Checkpoint, Encoding, pack_rows};
+use crate::kernels::linear::pack_bf16_halves;
 
 /// What a slot needs from the checkpoint.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -60,14 +61,26 @@ pub enum Source {
     /// Fold this NVFP4 scale as [`Source::FoldedScale`] does, halve it for the
     /// integer projection's E2M1-times-two weights, and interleave it by rows.
     InterleavedScale(String),
+    /// Read what the inner source reads, then pack it as bf16, two values to a word,
+    /// for [`crate::kernels::linear::Linear4Bf16Op`]. The `.weight_bf16` slots.
+    PackedBf16(Box<Source>),
 }
 
 /// Where each slot of a layer comes from.
 pub fn resolve(slots: &[String], layer: usize) -> Vec<(String, Source)> {
     slots
         .iter()
-        .map(|slot| {
-            let src = match slot.as_str() {
+        .map(|slot| (slot.clone(), resolve_slot(slot, layer)))
+        .collect()
+}
+
+/// Where one slot of a layer comes from.
+fn resolve_slot(slot: &str, layer: usize) -> Source {
+    // A packed bf16 weight reads whatever the plain `.weight` slot would.
+    if let Some(base) = slot.strip_suffix("_bf16").filter(|b| b.ends_with(".weight")) {
+        return Source::PackedBf16(Box::new(resolve_slot(base, layer)));
+    }
+    match slot {
                 // The NVFP4 gathers ask for a folded scale by name; the MXFP8 ones
                 // keep their own E8M0 bytes under the plain `scale`.
                 "mlp.experts.weight_rows" | "mlp.experts_down.weight_rows" => {
@@ -93,10 +106,7 @@ pub fn resolve(slots: &[String], layer: usize) -> Vec<(String, Source)> {
                     Source::Transposed(checkpoint_name(slot, layer), 0)
                 }
                 other => Source::Tensor(checkpoint_name(other, layer)),
-            };
-            (slot.clone(), src)
-        })
-        .collect()
+    }
 }
 
 /// Checks every slot of a layer exists in the checkpoint, without reading them.
@@ -105,27 +115,33 @@ pub fn resolve(slots: &[String], layer: usize) -> Vec<(String, Source)> {
 pub fn missing(ck: &Checkpoint, slots: &[String], layer: usize) -> Vec<(String, String)> {
     resolve(slots, layer)
         .into_iter()
-        .filter_map(|(slot, src)| match src {
-            Source::Tensor(name)
-            | Source::Transposed(name, _)
-            | Source::InterleavedWeight(name) => (!ck.has(&name)).then_some((slot, name)),
-            Source::FoldedScale(prefix) | Source::InterleavedScale(prefix) => {
-                let scale = format!("{prefix}_scale");
-                (!ck.has(&scale)).then_some((slot, scale))
-            }
-            Source::ExpertScale(prefix) => {
-                let amax = format!("{prefix}_amax");
-                let denom = format!("{prefix}_outer_scale_denominator");
-                if !ck.has(&amax) {
-                    Some((slot, amax))
-                } else if !ck.has(&denom) {
-                    Some((slot, denom))
-                } else {
-                    None
-                }
-            }
-        })
+        .filter_map(|(slot, src)| missing_tensor(ck, &src).map(|name| (slot, name)))
         .collect()
+}
+
+/// The checkpoint tensor `src` needs and the checkpoint lacks, if any.
+fn missing_tensor(ck: &Checkpoint, src: &Source) -> Option<String> {
+    match src {
+        Source::Tensor(name) | Source::Transposed(name, _) | Source::InterleavedWeight(name) => {
+            (!ck.has(name)).then(|| name.clone())
+        }
+        Source::FoldedScale(prefix) | Source::InterleavedScale(prefix) => {
+            let scale = format!("{prefix}_scale");
+            (!ck.has(&scale)).then_some(scale)
+        }
+        Source::ExpertScale(prefix) => {
+            let amax = format!("{prefix}_amax");
+            let denom = format!("{prefix}_outer_scale_denominator");
+            if !ck.has(&amax) {
+                Some(amax)
+            } else if !ck.has(&denom) {
+                Some(denom)
+            } else {
+                None
+            }
+        }
+        Source::PackedBf16(inner) => missing_tensor(ck, inner),
+    }
 }
 
 /// Reads the values for every slot of a layer.
@@ -152,67 +168,87 @@ pub fn read(
         .into_iter()
         .zip(shapes)
         .map(|((slot, src), declared)| {
-            let values = match &src {
-                Source::Tensor(name) => ck
-                    .param(name)
-                    .map_err(|e| anyhow::anyhow!("slot {slot} reads {name}: {e}"))?,
-                Source::ExpertScale(prefix) => ck
-                    .expert_scale2(prefix)
-                    .map_err(|e| anyhow::anyhow!("slot {slot} scales from {prefix}: {e}"))?,
-                Source::FoldedScale(prefix) => ck
-                    .folded_scale(prefix)
-                    .map_err(|e| anyhow::anyhow!("slot {slot} folds {prefix}: {e}"))?,
-                Source::InterleavedWeight(name) => {
-                    let (values, shape, enc) = ck
-                        .tensor(name)
-                        .map_err(|e| anyhow::anyhow!("slot {slot} reads {name}: {e}"))?;
-                    let (experts, rows) = expert_rows(&slot, declared)?;
-                    let words = match enc {
-                        Encoding::Bytes => {
-                            let row = *shape.last().ok_or_else(|| {
-                                anyhow::anyhow!("slot {slot}: {name} has no shape to pack by")
-                            })?;
-                            pack_rows(&values, row)
-                        }
-                        // A converted checkpoint stores the packed words, flat.
-                        Encoding::Float => values,
-                    };
-                    let width = words.len() / (experts * rows);
-                    interleave_rows(&words, experts, rows, width, ROWS)
-                }
-                Source::InterleavedScale(prefix) => {
-                    let (experts, rows) = expert_rows(&slot, declared)?;
-                    let folded: Vec<f32> = ck
-                        .folded_scale(prefix)
-                        .map_err(|e| anyhow::anyhow!("slot {slot} folds {prefix}: {e}"))?
-                        .into_iter()
-                        .map(|s| s * 0.5)
-                        .collect();
-                    let width = folded.len() / (experts * rows);
-                    interleave_rows(&folded, experts, rows, width, ROWS)
-                }
-                Source::Transposed(name, _) => {
-                    let (flat, shape, _) = ck
-                        .tensor(name)
-                        .map_err(|e| anyhow::anyhow!("slot {slot} reads {name}: {e}"))?;
-                    anyhow::ensure!(
-                        shape.len() == 2,
-                        "slot {slot}: {name} is {shape:?}, expected a matrix to transpose"
-                    );
-                    let (rows, cols) = (shape[0], shape[1]);
-                    let mut out = vec![0.0f32; flat.len()];
-                    for r in 0..rows {
-                        for c in 0..cols {
-                            out[c * rows + r] = flat[r * cols + c];
-                        }
-                    }
-                    out
-                }
-            };
+            let values = read_source(ck, &slot, &src, declared)?;
             Ok((slot, values))
         })
         .collect()
 }
+
+/// Reads the values one slot's source describes. `declared` is the slot's shape.
+fn read_source(
+    ck: &mut Checkpoint,
+    slot: &str,
+    src: &Source,
+    declared: &[usize],
+) -> anyhow::Result<Vec<f32>> {
+    Ok(match src {
+        Source::PackedBf16(inner) => {
+            anyhow::ensure!(
+                declared.len() == 2,
+                "slot {slot} is declared {declared:?}, expected [rows, words]"
+            );
+            let values = read_source(ck, slot, inner, declared)?;
+            pack_bf16_halves(&values, declared[0], declared[1] * 2)
+                .map_err(|e| anyhow::anyhow!("slot {slot}: {e}"))?
+        }
+        Source::Tensor(name) => ck
+            .param(name)
+            .map_err(|e| anyhow::anyhow!("slot {slot} reads {name}: {e}"))?,
+        Source::ExpertScale(prefix) => ck
+            .expert_scale2(prefix)
+            .map_err(|e| anyhow::anyhow!("slot {slot} scales from {prefix}: {e}"))?,
+        Source::FoldedScale(prefix) => ck
+            .folded_scale(prefix)
+            .map_err(|e| anyhow::anyhow!("slot {slot} folds {prefix}: {e}"))?,
+        Source::InterleavedWeight(name) => {
+            let (values, shape, enc) = ck
+                .tensor(name)
+                .map_err(|e| anyhow::anyhow!("slot {slot} reads {name}: {e}"))?;
+            let (experts, rows) = expert_rows(slot, declared)?;
+            let words = match enc {
+                Encoding::Bytes => {
+                    let row = *shape.last().ok_or_else(|| {
+                        anyhow::anyhow!("slot {slot}: {name} has no shape to pack by")
+                    })?;
+                    pack_rows(&values, row)
+                }
+                // A converted checkpoint stores the packed words, flat.
+                Encoding::Float => values,
+            };
+            let width = words.len() / (experts * rows);
+            interleave_rows(&words, experts, rows, width, ROWS)
+        }
+        Source::InterleavedScale(prefix) => {
+            let (experts, rows) = expert_rows(slot, declared)?;
+            let folded: Vec<f32> = ck
+                .folded_scale(prefix)
+                .map_err(|e| anyhow::anyhow!("slot {slot} folds {prefix}: {e}"))?
+                .into_iter()
+                .map(|s| s * 0.5)
+                .collect();
+            let width = folded.len() / (experts * rows);
+            interleave_rows(&folded, experts, rows, width, ROWS)
+        }
+        Source::Transposed(name, _) => {
+            let (flat, shape, _) = ck
+                .tensor(name)
+                .map_err(|e| anyhow::anyhow!("slot {slot} reads {name}: {e}"))?;
+            anyhow::ensure!(
+                shape.len() == 2,
+                "slot {slot}: {name} is {shape:?}, expected a matrix to transpose"
+            );
+            let (rows, cols) = (shape[0], shape[1]);
+            let mut out = vec![0.0f32; flat.len()];
+            for r in 0..rows {
+                for c in 0..cols {
+                    out[c * rows + r] = flat[r * cols + c];
+                }
+            }
+            out
+        }
+    })
+}
+
 
 /// The expert and row counts of a slot declared `[experts, rows, _]`.
 fn expert_rows(slot: &str, declared: &[usize]) -> anyhow::Result<(usize, usize)> {
