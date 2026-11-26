@@ -205,6 +205,13 @@ fn read_source(
         Source::FoldedScale(prefix) => ck
             .folded_scale(prefix)
             .map_err(|e| anyhow::anyhow!("slot {slot} folds {prefix}: {e}"))?,
+        // A converted checkpoint stores these already interleaved (format 2).
+        Source::InterleavedWeight(name) if ck.is_converted() => ck
+            .param(name)
+            .map_err(|e| anyhow::anyhow!("slot {slot} reads {name}: {e}"))?,
+        Source::InterleavedScale(prefix) if ck.is_converted() => ck
+            .folded_scale(prefix)
+            .map_err(|e| anyhow::anyhow!("slot {slot} reads {prefix}: {e}"))?,
         Source::InterleavedWeight(name) => {
             let (values, shape, enc) = ck
                 .tensor(name)
