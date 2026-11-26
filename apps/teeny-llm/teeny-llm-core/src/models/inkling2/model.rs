@@ -74,7 +74,7 @@ use super::kernels::{
 };
 use super::runner::Quant;
 use crate::kernels::last_row::LastRowOp;
-use crate::kernels::linear::Linear4Op;
+use crate::kernels::linear::Linear4Bf16Op;
 
 /// Block width for the linear kernel, as in the Gemma port.
 const LINEAR_BLOCK: i32 = 16;
@@ -98,10 +98,14 @@ fn add(a: &SymTensor, b: &SymTensor) -> SymTensor {
     wrap(a, node_id, shape)
 }
 
-/// Records a bias-free linear in the current scope, naming its slot `weight`.
+/// Records a bias-free linear in the current scope, naming its slot `weight_bf16`.
+///
+/// Every linear weight in the checkpoint is bf16, so it is kept as bf16, two to a
+/// word, and widened exactly in the kernel: half the bytes of f32 for the same
+/// arithmetic, on projections that run at memory bandwidth.
 fn linear<D: FloatBytes + Send + Sync + 'static>(x: &SymTensor, k: usize, n: usize) -> SymTensor {
     x.record_custom(
-        CustomData::new(Linear4Op::<D>::new(k, n, LINEAR_BLOCK)),
+        CustomData::new(Linear4Bf16Op::<D>::new(k, n, LINEAR_BLOCK)),
         &[],
         None,
     )
