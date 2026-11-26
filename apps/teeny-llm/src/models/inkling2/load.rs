@@ -31,7 +31,7 @@
 //! found at load time arrives as a failed read somewhere inside a step.
 
 use super::runner::checkpoint_name;
-use super::kernels::expert_gemv_nvfp4::{ROWS, interleave_rows};
+use super::kernels::expert_gemv_nvfp4::{ROWS, interleave_row_bytes, interleave_rows};
 use super::weights::{Checkpoint, Encoding, pack_rows};
 use crate::kernels::linear::pack_bf16_halves;
 
@@ -215,8 +215,9 @@ fn read_source(
                 // A converted checkpoint stores the packed words, flat.
                 Encoding::Float => values,
             };
-            let width = words.len() / (experts * rows);
-            interleave_rows(&words, experts, rows, width, ROWS)
+            // Four bytes, eight weights, to a word.
+            let row_bytes = words.len() / (experts * rows) * 4;
+            interleave_row_bytes(&words, experts, rows, row_bytes, ROWS)
         }
         Source::InterleavedScale(prefix) => {
             let (experts, rows) = expert_rows(slot, declared)?;
