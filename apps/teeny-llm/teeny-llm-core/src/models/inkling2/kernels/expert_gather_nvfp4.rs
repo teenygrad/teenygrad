@@ -53,7 +53,7 @@ pub fn expert_gather_nvfp4_forward<T: Triton, D: Float, const BLOCK: i32>(
     x_ptr: InPtr<T::Pointer<D>>,
     b_ptr: InPtr<T::Pointer<D>>,
     s_ptr: InPtr<T::Pointer<D>>,
-    ids_ptr: InPtr<T::Pointer<D>>,
+    ids_ptr: InPtr<T::Pointer<f32>>,
     y_ptr: OutPtr<T::Pointer<D>>,
     N: i32,
     K: i32,
@@ -84,41 +84,40 @@ pub fn expert_gather_nvfp4_forward<T: Triton, D: Float, const BLOCK: i32>(
     let offs = T::arange(0, BLOCK);
     let zeros = T::zeros::<D>(&[BLOCK]);
 
-    // The id sits in the router's packed row as a float; broadcast it so it can take
-    // part in the block-wide address arithmetic below.
-    let id = T::load(
-        ids_ptr.add_offsets(T::zeros::<i32>(&[BLOCK]) + (token * IDS_STRIDE + IDS_OFFSET + which)),
-        None,
-        Some(zeros),
-        &[],
-        None,
-        None,
-        None,
-        false,
-    );
-    let expert = T::cast::<D, i32>(id, None, false);
-
     let mut acc = T::zeros::<D>(&[BLOCK]);
-    let half = T::full(&[BLOCK], D::from_f64(0.5));
-    let one = T::full(&[BLOCK], D::from_f64(1.0));
-    let two = T::full(&[BLOCK], D::from_f64(2.0));
-    let four = T::full(&[BLOCK], D::from_f64(4.0));
-    // The subnormal E4M3 step: sm * 2^-9, which is (sm / 8) * 2^-6.
-    let sub9 = T::full(&[BLOCK], D::from_f64(0.001_953_125));
 
-    // Lane-invariant index arithmetic, hoisted out of the reduction.
-    //
-    // `k` is `offs + i * BLOCK` and BLOCK is a multiple of 16, so each of these
-    // shifts distributes over the sum exactly: `k >> 3` is `(offs >> 3) + i * BLOCK / 8`
-    // and so on. 16 is what the arithmetic needs -- one scale per 16 weights, hence
-    // `BLOCK / 16` -- and not the 64 this comment used to claim. The lane-dependent part is therefore the same on every iteration, and
-    // the byte and scale selectors do not depend on `i` at all. They used to be
-    // recomputed for every element of every chunk.
+    // The sixteen E2M1 values, built once per program and then read per lane with
+    // `T::gather`, which is one `vrgather.vv` on RVV. Code c is sign (c >> 3), a
+    // two-bit exponent and a one-bit mantissa: 0, 0.5, 1, 1.5, 2, 3, 4, 6, then
+    // the same negated.
+    let code = T::arange(0, 16);
+    let half = T::full(&[16], D::from_f64(0.5));
+    let one = T::full(&[16], D::from_f64(1.0));
+    let two = T::full(&[16], D::from_f64(2.0));
+    let four = T::full(&[16], D::from_f64(4.0));
+    let crest = code & 7;
+    let ce = crest >> 1;
+    let cmant = T::cast::<i32, D>(crest & 1, None, false);
+    let cp = T::where_(ce.eq(1), one, T::where_(ce.eq(2), two, four));
+    let cmag = T::where_(ce.eq(0), cmant * half, (one + cmant * half) * cp);
+    let lut = T::where_((code >> 3).eq(1), T::zeros::<D>(&[16]) - cmag, cmag);
+
+    // Lane k of a chunk wants word k / 8, nibble k % 8 of it, and scale k / 16.
+    // The words and scales a chunk needs are contiguous, so they are loaded as
+    // BLOCK / 8 and BLOCK / 16 lanes and spread across the BLOCK lanes with an
+    // in-register gather; a per-lane address would be an indexed load.
     let o8 = offs >> 3;
-    // One folded f32 scale per 16 weights, so the lane's scale index is offs / 16.
     let o16 = offs >> 4;
-    let bsel = (offs >> 1) & 3;
-    let parity = offs & 1;
+    let shift = (offs & 7) * 4;
+    let words_off = T::arange(0, BLOCK / 8);
+    let scales_off = T::arange(0, BLOCK / 16);
+    // The expert id sits in the router's packed row as a float. Read as a scalar,
+    // it makes every row offset below a scalar too, so each load's offsets are
+    // `arange + scalar` and the compiler can prove them contiguous; a loaded tensor
+    // would leave it per-lane indexed loads.
+    let expert = T::load_scalar_f32_as_i32(ids_ptr, token * IDS_STRIDE + IDS_OFFSET + which);
+    let brow = expert * (N * BWORDS) + n * BWORDS;
+    let srow = expert * (N * SWORDS) + n * SWORDS;
 
     let n_chunks = (K + BLOCK - 1) / BLOCK;
     for i in 0..n_chunks {
@@ -134,16 +133,13 @@ pub fn expert_gather_nvfp4_forward<T: Triton, D: Float, const BLOCK: i32>(
             None,
             false,
         );
-        // The packed row of this (expert, n): K/8 words of four bytes each, and
-        // K/64 words of four E4M3 scales.
-        let brow = expert * (N * BWORDS) + (n * BWORDS);
-        let srow = expert * (N * SWORDS) + (n * SWORDS);
 
-        let wword = T::cast::<D, i32>(
+        let wo = words_off + i * (BLOCK / 8);
+        let words = T::cast::<D, i32>(
             T::load(
-                b_ptr.add_offsets(o8 + i * (BLOCK / 8) + brow),
-                Some(km),
-                Some(zeros),
+                b_ptr.add_offsets(wo + brow),
+                Some(wo.lt(BWORDS)),
+                Some(T::zeros::<D>(&[BLOCK / 8])),
                 &[],
                 None,
                 None,
@@ -153,38 +149,21 @@ pub fn expert_gather_nvfp4_forward<T: Triton, D: Float, const BLOCK: i32>(
             None,
             true,
         );
-        // Byte (k/2) % 4 of that word. The index varies by lane, so all four are
-        // computed and selected; the top byte is masked to seven bits and 128 added
-        // back when the word is negative.
-        // An arithmetic shift then a mask: the mask drops the sign extension, so the
-        // top byte needs no special case and the four-way select disappears.
-        let byte = (wword >> (bsel * 8)) & 0xFF;
-        let nib = (byte >> (parity * 4)) & 0xF;
-        let sgn = nib >> 3;
-        let rest = nib & 7;
-        let e = rest >> 1;
-        let mant = T::cast::<i32, D>(rest & 1, None, false);
-        // E2M1's exponent is two bits, so `exp2(e - 1)` is one of 1, 2 and 4: a pair of
-        // selects rather than a transcendental. RISC-V has no vector exp2, and this ran
-        // once per weight.
-        let p = T::where_(e.eq(1), one, T::where_(e.eq(2), two, four));
-        let mag = T::where_(e.eq(0), mant * half, (one + mant * half) * p);
-        let val = T::where_(sgn.eq(1), zeros - mag, mag);
+        let nib = (T::gather(words, o8, 0) >> shift) & 0xF;
+        let val = T::gather(lut, nib, 0);
 
-        // One folded f32 per 16-weight block: the E4M3 block scale times the
-        // per-expert scale, multiplied at load time. This used to be a word load, a
-        // shift, a mask, three field splits, a bit construction, a reinterpret and
-        // two selects -- per weight, for a scale sixteen weights share.
-        let sval = T::load(
-            s_ptr.add_offsets(o16 + i * (BLOCK / 16) + srow),
-            Some(km),
-            Some(zeros),
+        let so = scales_off + i * (BLOCK / 16);
+        let scales = T::load(
+            s_ptr.add_offsets(so + srow),
+            Some(so.lt(SWORDS)),
+            Some(T::zeros::<D>(&[BLOCK / 16])),
             &[],
             None,
             None,
             None,
             false,
         );
+        let sval = T::gather(scales, o16, 0);
         acc = acc + x * (val * sval);
     }
     // One scalar per program: reduce the lanes, then write a single element. The
