@@ -206,8 +206,10 @@ pub fn expert_gemv_nvfp4_forward<T: Triton, D: Float, const ROWS: i32>(
             let hi = T::cast::<u8, i32>(byte >> 4u8, None, false);
             let wl = T::cast::<i8, i16>(T::gather(lut, lo, 0), None, false);
             let wh = T::cast::<i8, i16>(T::gather(lut, hi, 0), None, false);
-            let x0 = T::load_scalar_f32_as_i32(xq_ptr, xbase + j * 2) as i16;
-            let x1 = T::load_scalar_f32_as_i32(xq_ptr, xbase + j * 2 + 1) as i16;
+            // Through i8 so the compiler can see both factors are 8-bit and use one
+            // widening multiply-accumulate (vwmacc) instead of extending each weight.
+            let x0 = T::load_scalar_f32_as_i32(xq_ptr, xbase + j * 2) as i8 as i16;
+            let x1 = T::load_scalar_f32_as_i32(xq_ptr, xbase + j * 2 + 1) as i8 as i16;
             iacc = iacc + wl * x0 + wh * x1;
         }
         let ws = T::load(
@@ -259,22 +261,24 @@ pub fn interleave_row_bytes(
     let row_words = row_bytes.div_ceil(4);
     assert_eq!(words.len(), experts * n * row_words, "interleave bytes: size");
     assert_eq!(n % rows, 0, "interleave bytes: {n} rows do not split into blocks of {rows}");
-    let byte = |e: usize, r: usize, b: usize| -> u8 {
-        words[(e * n + r) * row_words + b / 4].to_bits().to_le_bytes()[b % 4]
-    };
-    let mut out = vec![0u8; experts * n * row_bytes];
-    for e in 0..experts {
-        for rb in 0..n / rows {
-            for b in 0..row_bytes {
-                for r in 0..rows {
-                    let to = ((e * (n / rows) + rb) * row_bytes + b) * rows + r;
-                    out[to] = byte(e, rb * rows + r, b);
-                }
+    // Every row's bytes once, so the transposition below is plain indexing. This
+    // runs over the whole checkpoint at load, so it is written for speed.
+    let src: Vec<u8> = words.iter().flat_map(|w| w.to_bits().to_le_bytes()).collect();
+    let row_stride = row_words * 4;
+    let mut out = vec![0u8; (experts * n * row_bytes).div_ceil(4) * 4];
+    for (block, dst) in out[..experts * n * row_bytes]
+        .chunks_exact_mut(row_bytes * rows)
+        .enumerate()
+    {
+        let first_row = block * rows;
+        for r in 0..rows {
+            let row = &src[(first_row + r) * row_stride..][..row_bytes];
+            for (b, v) in row.iter().enumerate() {
+                dst[b * rows + r] = *v;
             }
         }
     }
-    out.resize(out.len().div_ceil(4) * 4, 0);
-    out.chunks(4)
+    out.chunks_exact(4)
         .map(|c| f32::from_bits(u32::from_le_bytes([c[0], c[1], c[2], c[3]])))
         .collect()
 }
