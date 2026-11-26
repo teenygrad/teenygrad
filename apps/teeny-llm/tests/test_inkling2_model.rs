@@ -145,7 +145,7 @@ impl GraphRun {
         let names: Vec<String> = slots.iter().map(|(n, _, _)| n.clone()).collect();
         let missing = teeny_llm::models::inkling2::load::missing(ck, &names, layer);
         assert!(missing.is_empty(), "layer {layer} is missing {missing:?}");
-        let values = teeny_llm::models::inkling2::load::read(ck, &names, layer)
+        let values = teeny_llm::models::inkling2::load::read(ck, &names, &declared_shapes(&model, &slots), layer)
             .expect("reading the layer's parameters");
         let by_name: std::collections::HashMap<&str, &[f32]> = values
             .iter()
@@ -189,7 +189,7 @@ impl GraphRun {
         .expect("compiling the graph through teenyc");
         let slots: Vec<(String, usize, usize)> = model.param_info_named().collect();
         let names: Vec<String> = slots.iter().map(|(n, _, _)| n.clone()).collect();
-        let values = teeny_llm::models::inkling2::load::read(ck, &names, layer)
+        let values = teeny_llm::models::inkling2::load::read(ck, &names, &declared_shapes(&model, &slots), layer)
             .expect("reading the layer's parameters");
         let by_name: std::collections::HashMap<&str, &[f32]> = values
             .iter()
@@ -867,7 +867,7 @@ fn test_layer_execution_speed() {
     let t_load = Instant::now();
     let slots: Vec<(String, usize, usize)> = model.param_info_named().collect();
     let names: Vec<String> = slots.iter().map(|(n, _, _)| n.clone()).collect();
-    let values = teeny_llm::models::inkling2::load::read(&mut ck, &names, layer)
+    let values = teeny_llm::models::inkling2::load::read(&mut ck, &names, &declared_shapes(&model, &slots), layer)
         .expect("reading the layer's parameters");
     let by_name: std::collections::HashMap<&str, &[f32]> = values
         .iter()
@@ -1771,4 +1771,20 @@ fn test_one_token_logits_against_the_reference() {
         "the model must predict the same token as the reference"
     );
     assert!(worst < 1e-2, "logits diverge by {worst}");
+}
+
+/// Each slot's declared shape, which `load::read` takes alongside the names.
+fn declared_shapes(
+    model: &teeny_test::model::RuntimeModel<'_>,
+    slots: &[(String, usize, usize)],
+) -> Vec<Vec<usize>> {
+    slots
+        .iter()
+        .map(|(name, node, idx)| {
+            model
+                .param_shape(*node, *idx)
+                .unwrap_or_else(|| panic!("{name} has no declared shape"))
+                .to_vec()
+        })
+        .collect()
 }

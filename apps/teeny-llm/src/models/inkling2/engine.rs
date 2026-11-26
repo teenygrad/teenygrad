@@ -91,7 +91,16 @@ impl<'d> Compiled<'d> {
                 .first()
                 .map(|(slot, _)| checkpoint_name(slot, layer)),
         );
-        let values = super::load::read(ck, &names, layer)?;
+        let shapes: Vec<Vec<usize>> = slots
+            .iter()
+            .map(|(name, node, idx)| {
+                model
+                    .param_shape(*node, *idx)
+                    .map(<[usize]>::to_vec)
+                    .ok_or_else(|| anyhow::anyhow!("{name} has no declared shape"))
+            })
+            .collect::<anyhow::Result<_>>()?;
+        let values = super::load::read(ck, &names, &shapes, layer)?;
         let by_name: HashMap<&str, &[f32]> = values
             .iter()
             .map(|(n, v)| (n.as_str(), v.as_slice()))

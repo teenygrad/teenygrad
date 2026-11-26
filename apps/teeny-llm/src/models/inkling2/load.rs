@@ -31,7 +31,8 @@
 //! found at load time arrives as a failed read somewhere inside a step.
 
 use super::runner::checkpoint_name;
-use super::weights::Checkpoint;
+use super::kernels::expert_gemv_nvfp4::{ROWS, interleave_rows};
+use super::weights::{Checkpoint, Encoding, pack_rows};
 
 /// What a slot needs from the checkpoint.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -53,6 +54,12 @@ pub enum Source {
     /// untransposed loads cleanly and computes nonsense; the name is `.proj` rather
     /// than `.weight` because it is not a linear's weight.
     Transposed(String, usize),
+    /// Read this packed NVFP4 weight and interleave it by blocks of
+    /// [`ROWS`] rows, for the integer projection.
+    InterleavedWeight(String),
+    /// Fold this NVFP4 scale as [`Source::FoldedScale`] does, halve it for the
+    /// integer projection's E2M1-times-two weights, and interleave it by rows.
+    InterleavedScale(String),
 }
 
 /// Where each slot of a layer comes from.
@@ -63,6 +70,15 @@ pub fn resolve(slots: &[String], layer: usize) -> Vec<(String, Source)> {
             let src = match slot.as_str() {
                 // The NVFP4 gathers ask for a folded scale by name; the MXFP8 ones
                 // keep their own E8M0 bytes under the plain `scale`.
+                "mlp.experts.weight_r32" | "mlp.experts_down.weight_r32" => {
+                    Source::InterleavedWeight(checkpoint_name(slot, layer))
+                }
+                "mlp.experts.folded_scale_r32" | "mlp.experts_down.folded_scale_r32" => {
+                    let name = checkpoint_name(slot, layer);
+                    Source::InterleavedScale(
+                        name.strip_suffix("_scale").unwrap_or(&name).to_string(),
+                    )
+                }
                 "mlp.experts.folded_scale" | "mlp.experts_down.folded_scale" => {
                     let name = checkpoint_name(slot, layer);
                     Source::FoldedScale(name.strip_suffix("_scale").unwrap_or(&name).to_string())
@@ -90,10 +106,10 @@ pub fn missing(ck: &Checkpoint, slots: &[String], layer: usize) -> Vec<(String, 
     resolve(slots, layer)
         .into_iter()
         .filter_map(|(slot, src)| match src {
-            Source::Tensor(name) | Source::Transposed(name, _) => {
-                (!ck.has(&name)).then_some((slot, name))
-            }
-            Source::FoldedScale(prefix) => {
+            Source::Tensor(name)
+            | Source::Transposed(name, _)
+            | Source::InterleavedWeight(name) => (!ck.has(&name)).then_some((slot, name)),
+            Source::FoldedScale(prefix) | Source::InterleavedScale(prefix) => {
                 let scale = format!("{prefix}_scale");
                 (!ck.has(&scale)).then_some((slot, scale))
             }
@@ -116,14 +132,26 @@ pub fn missing(ck: &Checkpoint, slots: &[String], layer: usize) -> Vec<(String, 
 ///
 /// Separate from handing them to a device so the sizes can be checked, and so a
 /// caller that only wants to know whether a layer loads does not need one.
+///
+/// `shapes` are the slots' declared shapes, in the same order. The interleaved NVFP4
+/// slots take their expert and row counts from them, since a converted checkpoint
+/// stores its packed tensors flat.
 pub fn read(
     ck: &mut Checkpoint,
     slots: &[String],
+    shapes: &[Vec<usize>],
     layer: usize,
 ) -> anyhow::Result<Vec<(String, Vec<f32>)>> {
+    anyhow::ensure!(
+        shapes.len() == slots.len(),
+        "{} slots but {} shapes",
+        slots.len(),
+        shapes.len()
+    );
     resolve(slots, layer)
         .into_iter()
-        .map(|(slot, src)| {
+        .zip(shapes)
+        .map(|((slot, src), declared)| {
             let values = match &src {
                 Source::Tensor(name) => ck
                     .param(name)
@@ -134,6 +162,35 @@ pub fn read(
                 Source::FoldedScale(prefix) => ck
                     .folded_scale(prefix)
                     .map_err(|e| anyhow::anyhow!("slot {slot} folds {prefix}: {e}"))?,
+                Source::InterleavedWeight(name) => {
+                    let (values, shape, enc) = ck
+                        .tensor(name)
+                        .map_err(|e| anyhow::anyhow!("slot {slot} reads {name}: {e}"))?;
+                    let (experts, rows) = expert_rows(&slot, declared)?;
+                    let words = match enc {
+                        Encoding::Bytes => {
+                            let row = *shape.last().ok_or_else(|| {
+                                anyhow::anyhow!("slot {slot}: {name} has no shape to pack by")
+                            })?;
+                            pack_rows(&values, row)
+                        }
+                        // A converted checkpoint stores the packed words, flat.
+                        Encoding::Float => values,
+                    };
+                    let width = words.len() / (experts * rows);
+                    interleave_rows(&words, experts, rows, width, ROWS)
+                }
+                Source::InterleavedScale(prefix) => {
+                    let (experts, rows) = expert_rows(&slot, declared)?;
+                    let folded: Vec<f32> = ck
+                        .folded_scale(prefix)
+                        .map_err(|e| anyhow::anyhow!("slot {slot} folds {prefix}: {e}"))?
+                        .into_iter()
+                        .map(|s| s * 0.5)
+                        .collect();
+                    let width = folded.len() / (experts * rows);
+                    interleave_rows(&folded, experts, rows, width, ROWS)
+                }
                 Source::Transposed(name, _) => {
                     let (flat, shape, _) = ck
                         .tensor(name)
@@ -155,4 +212,14 @@ pub fn read(
             Ok((slot, values))
         })
         .collect()
+}
+
+/// The expert and row counts of a slot declared `[experts, rows, _]`.
+fn expert_rows(slot: &str, declared: &[usize]) -> anyhow::Result<(usize, usize)> {
+    anyhow::ensure!(
+        declared.len() == 3 && declared[0] > 0 && declared[1] % ROWS == 0,
+        "slot {slot} is declared {declared:?}, expected [experts, rows, _] with rows a \
+         multiple of {ROWS}"
+    );
+    Ok((declared[0], declared[1]))
 }

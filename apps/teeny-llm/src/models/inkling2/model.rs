@@ -57,7 +57,7 @@ use super::kernels::{
     embed::EmbedOp,
     expert_gather::ExpertGatherOp,
     expert_gather_mxfp8::ExpertGatherMxfp8Op,
-    expert_gather_nvfp4::ExpertGatherNvfp4Op,
+    expert_gemv_nvfp4::{ExpertGemvNvfp4Op, QuantRowsQ8Op},
     gated_mul::GatedMulOp,
     l2_clip::{L2ClipOp, ScaledL2ClipOp},
     mix::MessageMixOp,
@@ -155,11 +155,15 @@ pub fn build_moe<D: FloatBytes + Send + Sync + 'static>(
             &[r],
             None,
         ),
-        Some(Quant::Nvfp4) => x.record_custom(
-            CustomData::new(ExpertGatherNvfp4Op::<D>::new(e, n, kk, slots)),
-            &[r],
-            None,
-        ),
+        // Integer arithmetic: the activations are quantised to int8 per 16-element
+        // block first, and the weights are exact int8 inside the projection.
+        Some(Quant::Nvfp4) => x
+            .record_custom(CustomData::new(QuantRowsQ8Op::<D>::new(kk)), &[], None)
+            .record_custom(
+                CustomData::new(ExpertGemvNvfp4Op::<D>::new(e, n, kk, slots)),
+                &[r],
+                None,
+            ),
         Some(Quant::Mxfp8) => x.record_custom(
             CustomData::new(ExpertGatherMxfp8Op::<D>::new(e, n, kk, slots)),
             &[r],
