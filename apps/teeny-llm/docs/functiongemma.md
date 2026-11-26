@@ -189,14 +189,14 @@ Open-Meteo rather than merely checking that it called something. See
 
 ## teenyc issues found along the way
 
-Five teenyc bugs shaped the RISC-V kernels here. Each has a workaround in place; they are worth
-fixing upstream (the toolchain installed by `cargo teeny install-toolchain`).
+Five teenyc bugs shaped the RISC-V kernels here. Each has a workaround in place, or is fixed
+upstream (the toolchain installed by `cargo teeny install-toolchain`) as noted.
 
 | # | Bug | Where it bit | Workaround |
 |---|---|---|---|
 | 1 | Two loops in a row in one kernel crash the RISC-V codegen (`codegen_goto: target bbN not in basic_blocks`, a rustc ICE) | attention with separate cache and new-key loops | one loop with masked cache and new-key loads |
 | 2 | No `>>` or `&` on `i32` in kernels (`no implementation for i32 >> {integer}`) | branch-free `max(x, 0)` | the host computes the window start (`LO`) |
-| 3 | `T::cast(.., bitcast = true)` emits `arith.sitofp`, a numeric conversion, not a bit cast | expanding BF16 weights to f32 | none; BF16 weights were dropped (16-bit integer weights with row scales work but are lossy and gained little) |
+| 3 | `T::cast(.., bitcast = true)` emitted `arith.sitofp`, a numeric conversion, not a bit cast | expanding BF16 weights to f32 | **fixed** in teenyc 1.100.0 (`b59c418f8b4`, 2026-11-24): a bitcast emits `tt.bitcast`, and `<<`, `>>` and `^` work on tensors. BF16 weights are still dropped until teenygrad can monomorphise kernels for f16/bf16 (teenygrad-35vc.16); 16-bit integer weights with row scales work but are lossy and gained little |
 | 4 | A loop nested in another is silently dropped (the MLIR keeps only the outer loop, so results are zero) | a linear kernel looping over rows | program ids numbered down the rows (`linear4_rows_forward`) |
 | 5 | `for j in a..b` runs `b` iterations starting at `a` (the trip count ignores the start) | attention past the 512-token window: NaN logits, `<pad>` output | loop from 0 and add the start |
 
