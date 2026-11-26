@@ -56,7 +56,7 @@ use super::kernels::{
     dyn_sconv::DynSconvOp,
     embed::EmbedOp,
     expert_gather::ExpertGatherOp,
-    expert_gather_mxfp8::ExpertGatherMxfp8Op,
+    expert_gemv_mxfp8::ExpertGemvMxfp8Op,
     expert_gemv_nvfp4::{ExpertGemvNvfp4Op, QuantRowsQ8Op},
     gated_mul::GatedMulOp,
     l2_clip::{L2ClipOp, ScaledL2ClipOp},
@@ -168,8 +168,10 @@ pub fn build_moe<D: FloatBytes + Send + Sync + 'static>(
                 &[r],
                 None,
             ),
+        // Rows as lanes, like the NVFP4 projection, in f32: an E4M3 value is not an
+        // integer at any useful scale.
         Some(Quant::Mxfp8) => x.record_custom(
-            CustomData::new(ExpertGatherMxfp8Op::<D>::new(e, n, kk, slots)),
+            CustomData::new(ExpertGemvMxfp8Op::<D>::new(e, n, kk, slots)),
             &[r],
             None,
         ),

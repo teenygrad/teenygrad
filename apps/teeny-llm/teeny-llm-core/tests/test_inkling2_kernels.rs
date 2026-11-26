@@ -37,6 +37,7 @@ use teeny_llm_core::models::inkling2::kernels::{
     expert_gather::ExpertGatherOp,
     expert_gather_mxfp8::ExpertGatherMxfp8Op,
     expert_gather_nvfp4::ExpertGatherNvfp4Op,
+    expert_gemv_mxfp8::ExpertGemvMxfp8Op,
     expert_gemv_nvfp4::{ExpertGemvNvfp4Op, QuantRowsQ8Op, ROWS, interleave_row_bytes, interleave_rows},
     gated_mul::GatedMulOp,
     l2_clip::{L2ClipOp, ScaledL2ClipOp},
@@ -2282,5 +2283,56 @@ fn test_bf16_linear_matches_the_f32_linear() {
     let packed = pack_bf16_halves(&w, n, k).expect("bf16 weights pack");
     let got = OneOp::new(&[m, k]).run(Linear4Bf16Op::<f32>::new(k, n, 16), &[], &[&x], &[&packed]);
     assert_close("bf16 linear vs f32 linear", &got, &want, 1e-5);
+    assert!(want.iter().any(|v| v.abs() > 1e-3), "non-trivial output");
+}
+
+/// The rows-as-lanes MXFP8 projection computes what the f32 gather does on the same
+/// weights decoded on the host. Every E4M3 byte value but the NaNs appears, with a
+/// different E8M0 scale per row and block, so a wrong decode, scale index or
+/// interleave gives a wrong answer.
+#[test]
+fn test_mxfp8_gemv_matches_the_f32_gather() {
+    let (t, e, n, k, top_k) = (2usize, 3usize, 64usize, 256usize, 2usize);
+    let rows = e * n;
+    let wbytes: Vec<u8> = (0..rows * k)
+        .map(|i| ((i * 37 + 11) % 256) as u8)
+        .map(|b| if b & 0x7F == 0x7F { b - 1 } else { b })
+        .collect();
+    let sbytes: Vec<u8> = (0..rows * k / 32).map(|i| (114 + (i % 26)) as u8).collect();
+    let e8m0 = |b: u8| (b as f32 - 127.0).exp2();
+    let w: Vec<f32> = (0..rows * k)
+        .map(|i| {
+            let (row, col) = (i / k, i % k);
+            e4m3(wbytes[i]) * e8m0(sbytes[row * (k / 32) + col / 32])
+        })
+        .collect();
+    assert!(w.iter().all(|v| v.is_finite()), "no NaN encodings");
+
+    let x = values(t * k, 171);
+    let ids = [2usize, 0, 1, 2];
+    let packed = packed_router_ids(&ids, t, top_k);
+    let gf = OneOp::new(&[t, k]);
+    let ids_f = gf.input(&[t, 2 * top_k]);
+    let want = gf.run(
+        ExpertGatherOp::<f32>::new(e, n, k, top_k),
+        &[&ids_f],
+        &[&x, &packed],
+        &[&w],
+    );
+
+    let bytes = pack_rows(&wbytes.iter().map(|b| *b as f32).collect::<Vec<_>>(), k);
+    let scales = pack_rows(&sbytes.iter().map(|b| *b as f32).collect::<Vec<_>>(), k / 32);
+    let g = OneOp::new(&[t, k]);
+    let ids_g = g.input(&[t, 2 * top_k]);
+    let got = g.run(
+        ExpertGemvMxfp8Op::<f32>::new(e, n, k, top_k),
+        &[&ids_g],
+        &[&x, &packed],
+        &[
+            &interleave_row_bytes(&bytes, e, n, k, ROWS),
+            &interleave_row_bytes(&scales, e, n, k / 32, ROWS),
+        ],
+    );
+    assert_close("mxfp8 gemv vs f32 gather", &got, &want, 1e-4);
     assert!(want.iter().any(|v| v.abs() > 1e-3), "non-trivial output");
 }

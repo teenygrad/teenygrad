@@ -195,7 +195,10 @@ pub fn checkpoint_name(slot: &str, layer: usize) -> String {
         "mlp.experts.weight" | "mlp.experts.weight_rows" => {
             format!("{prefix}mlp.experts.w13_weight")
         }
-        "mlp.experts.scale" | "mlp.experts.folded_scale" | "mlp.experts.folded_scale_rows" => {
+        "mlp.experts.scale"
+        | "mlp.experts.folded_scale"
+        | "mlp.experts.folded_scale_rows"
+        | "mlp.experts.scale_rows" => {
             format!("{prefix}mlp.experts.w13_weight_scale")
         }
         "mlp.experts_down.weight" | "mlp.experts_down.weight_rows" => {
@@ -203,7 +206,8 @@ pub fn checkpoint_name(slot: &str, layer: usize) -> String {
         }
         "mlp.experts_down.scale"
         | "mlp.experts_down.folded_scale"
-        | "mlp.experts_down.folded_scale_rows" => {
+        | "mlp.experts_down.folded_scale_rows"
+        | "mlp.experts_down.scale_rows" => {
             format!("{prefix}mlp.experts.w2_weight_scale")
         }
         // NVFP4's per-expert scale is not stored as one tensor: it is `amax` divided

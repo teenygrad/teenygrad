@@ -83,7 +83,12 @@ fn resolve_slot(slot: &str, layer: usize) -> Source {
     match slot {
                 // The NVFP4 gathers ask for a folded scale by name; the MXFP8 ones
                 // keep their own E8M0 bytes under the plain `scale`.
-                "mlp.experts.weight_rows" | "mlp.experts_down.weight_rows" => {
+                // The MXFP8 projection's E8M0 scales are bytes per row, interleaved like
+        // its weights.
+        "mlp.experts.weight_rows"
+        | "mlp.experts_down.weight_rows"
+        | "mlp.experts.scale_rows"
+        | "mlp.experts_down.scale_rows" => {
                     Source::InterleavedWeight(checkpoint_name(slot, layer))
                 }
                 "mlp.experts.folded_scale_rows" | "mlp.experts_down.folded_scale_rows" => {
