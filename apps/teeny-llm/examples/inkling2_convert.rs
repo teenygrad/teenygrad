@@ -35,6 +35,8 @@ use std::path::PathBuf;
 use clap::Parser;
 use safetensors::tensor::{Dtype, TensorView};
 use teeny_llm::models::inkling2::Inkling2Config;
+use teeny_llm::models::inkling2::kernels::{expert_gemv_mxfp8, expert_gemv_nvfp4};
+use teeny_llm::models::inkling2::runner::{Quant, quant_of};
 use teeny_llm::models::inkling2::weights::{
     CONVERTED_FORMAT, CONVERTED_MARKER, Checkpoint, e4m3_to_f32, pack_rows,
 };
@@ -93,43 +95,61 @@ fn main() -> anyhow::Result<()> {
     for shard in &shards {
         let mut owned: Vec<(String, Vec<usize>, Vec<u8>)> = Vec::new();
         for name in &groups[shard] {
-            let layer = layer_of(name);
-            let nvfp4 = layer.is_some_and(|l| {
-                matches!(
-                    teeny_llm::models::inkling2::runner::quant_of(&cfg, l),
-                    teeny_llm::models::inkling2::runner::Quant::Nvfp4
-                )
-            });
-            let is_expert_scale = name.ends_with("_weight_scale");
+            let quant = layer_of(name).map(|l| quant_of(&cfg, l));
+            let is_expert = name.contains(".mlp.experts.");
+            let is_expert_weight =
+                is_expert && (name.ends_with("w13_weight") || name.ends_with("w2_weight"));
+            let is_expert_scale = is_expert && name.ends_with("_weight_scale");
             let (values, shape, _) = ck.tensor(name)?;
+            let quantised = matches!(
+                ck.encoding_of(name)?,
+                teeny_llm::models::inkling2::weights::Encoding::Bytes
+            );
+            // [experts, rows, ...]: the rows-as-lanes projections interleave by rows.
+            let (experts, rows) = (shape.first().copied().unwrap_or(1), shape.get(1).copied().unwrap_or(1));
+            let row_len = *shape.last().unwrap_or(&values.len());
 
-            let (out, out_shape) = if is_expert_scale && nvfp4 {
-                // Fold the block scale with the per-expert scale.
-                let prefix = name.trim_end_matches("_scale");
-                let s2 = ck.expert_scale2(prefix)?;
-                let per = values.len() / s2.len();
-                let folded: Vec<f32> = values
-                    .iter()
-                    .enumerate()
-                    .map(|(i, b)| e4m3_to_f32(*b as u8) * s2[i / per])
-                    .collect();
-                let n = folded.len();
-                (folded, vec![n])
-            } else {
-                // `tensor` has already turned bf16 and f32 into f32; a quantised
-                // tensor comes back as one byte per element and is repacked here.
-                let quantised = matches!(
-                    ck.encoding_of(name)?,
-                    teeny_llm::models::inkling2::weights::Encoding::Bytes
-                );
-                if quantised {
-                    let row = *shape.last().unwrap_or(&values.len());
-                    let packed = pack_rows(&values, row);
-                    let n = packed.len();
-                    (packed, vec![n])
-                } else {
-                    (values, shape)
+            let out: Vec<f32> = match quant {
+                // NVFP4: packed nibble bytes and folded, halved scales, row-interleaved
+                // as ExpertGemvNvfp4Op reads them.
+                Some(Quant::Nvfp4) if is_expert_scale => {
+                    let prefix = name.trim_end_matches("_scale");
+                    let s2 = ck.expert_scale2(prefix)?;
+                    let per = values.len() / s2.len();
+                    let folded: Vec<f32> = values
+                        .iter()
+                        .enumerate()
+                        .map(|(i, b)| e4m3_to_f32(*b as u8) * s2[i / per] * 0.5)
+                        .collect();
+                    expert_gemv_nvfp4::interleave_rows(&folded, experts, rows, row_len, expert_gemv_nvfp4::ROWS)
                 }
+                Some(Quant::Nvfp4) if is_expert_weight => expert_gemv_nvfp4::interleave_row_bytes(
+                    &pack_rows(&values, row_len),
+                    experts,
+                    rows,
+                    row_len,
+                    expert_gemv_nvfp4::ROWS,
+                ),
+                // MXFP8: weight and E8M0 scale bytes alike, byte-interleaved for
+                // ExpertGemvMxfp8Op.
+                Some(Quant::Mxfp8) if is_expert_weight || is_expert_scale => {
+                    expert_gemv_nvfp4::interleave_row_bytes(
+                        &pack_rows(&values, row_len),
+                        experts,
+                        rows,
+                        row_len,
+                        expert_gemv_mxfp8::ROWS,
+                    )
+                }
+                // `tensor` has already turned bf16 and f32 into f32; any other
+                // quantised tensor is repacked four bytes to an element.
+                _ if quantised => pack_rows(&values, row_len),
+                _ => values,
+            };
+            let out_shape = if quantised || is_expert_scale {
+                vec![out.len()]
+            } else {
+                shape
             };
             total += (out.len() * 4) as u64;
             owned.push((name.clone(), out_shape, bytes_of(&out)));

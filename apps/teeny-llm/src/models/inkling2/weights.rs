@@ -343,7 +343,12 @@ impl Checkpoint {
 /// checkpoint is a cache of decisions made at conversion time, and the loader has no
 /// other way to notice that those decisions have moved on -- it would read the stale
 /// tensors happily and the model would produce wrong output with no error.
-pub const CONVERTED_FORMAT: u32 = 1;
+///
+/// - 1: packed quantised bytes, NVFP4 scales folded, bf16 widened to f32.
+/// - 2: the expert tensors in the row-interleaved layouts the rows-as-lanes
+///   projections read (see [`super::load::Source::InterleavedWeight`]), so loading
+///   them is a read rather than a repack.
+pub const CONVERTED_FORMAT: u32 = 2;
 
 /// The tensor a converted checkpoint stores [`CONVERTED_FORMAT`] in.
 pub const CONVERTED_MARKER: &str = "__converted__";
