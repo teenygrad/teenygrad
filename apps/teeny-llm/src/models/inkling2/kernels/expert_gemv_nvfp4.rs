@@ -47,9 +47,12 @@ use teeny_core::dtype::{AddOffsets, Comparison, Float, Tensor};
 use teeny_macros::kernel;
 use teeny_triton::triton::*;
 
-/// Output rows per program, and the interleave width of the repacked weights. 32
-/// i32 lanes are four vector registers at VLEN=256.
-pub const ROWS: usize = 32;
+/// Output rows per program, and the interleave width of the repacked weights.
+///
+/// 16 i32 lanes are two vector registers at VLEN=256. The reduction's eight
+/// nibbles per word are independent, so the compiler computes all their weights
+/// before using them; at 32 rows that is the whole register file and spills.
+pub const ROWS: usize = 16;
 
 /// Elements per activation block, and per weight scale.
 pub const QBLOCK: usize = 16;
@@ -421,7 +424,7 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for ExpertGemvNvfp4Runtime
     }
 
     fn param_names(&self) -> &'static [&'static str] {
-        &["weight_r32", "folded_scale_r32"]
+        &["weight_rows", "folded_scale_rows"]
     }
 
     fn pack_args(
