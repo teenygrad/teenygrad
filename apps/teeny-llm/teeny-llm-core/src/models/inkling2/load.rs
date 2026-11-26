@@ -70,10 +70,10 @@ pub fn resolve(slots: &[String], layer: usize) -> Vec<(String, Source)> {
             let src = match slot.as_str() {
                 // The NVFP4 gathers ask for a folded scale by name; the MXFP8 ones
                 // keep their own E8M0 bytes under the plain `scale`.
-                "mlp.experts.weight_r32" | "mlp.experts_down.weight_r32" => {
+                "mlp.experts.weight_rows" | "mlp.experts_down.weight_rows" => {
                     Source::InterleavedWeight(checkpoint_name(slot, layer))
                 }
-                "mlp.experts.folded_scale_r32" | "mlp.experts_down.folded_scale_r32" => {
+                "mlp.experts.folded_scale_rows" | "mlp.experts_down.folded_scale_rows" => {
                     let name = checkpoint_name(slot, layer);
                     Source::InterleavedScale(
                         name.strip_suffix("_scale").unwrap_or(&name).to_string(),

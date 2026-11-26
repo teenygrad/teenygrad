@@ -190,20 +190,20 @@ pub fn checkpoint_name(slot: &str, layer: usize) -> String {
         // stored under the convolution rather than beside it.
         "attn.k_sconv.weight_proj.weight" => format!("{prefix}attn.k_sconv.weight_proj"),
         "attn.v_sconv.weight_proj.weight" => format!("{prefix}attn.v_sconv.weight_proj"),
-        // The `_r32` slots are the integer NVFP4 projection's: the same tensors,
+        // The `_rows` slots are the integer NVFP4 projection's: the same tensors,
         // interleaved by row at load time.
-        "mlp.experts.weight" | "mlp.experts.weight_r32" => {
+        "mlp.experts.weight" | "mlp.experts.weight_rows" => {
             format!("{prefix}mlp.experts.w13_weight")
         }
-        "mlp.experts.scale" | "mlp.experts.folded_scale" | "mlp.experts.folded_scale_r32" => {
+        "mlp.experts.scale" | "mlp.experts.folded_scale" | "mlp.experts.folded_scale_rows" => {
             format!("{prefix}mlp.experts.w13_weight_scale")
         }
-        "mlp.experts_down.weight" | "mlp.experts_down.weight_r32" => {
+        "mlp.experts_down.weight" | "mlp.experts_down.weight_rows" => {
             format!("{prefix}mlp.experts.w2_weight")
         }
         "mlp.experts_down.scale"
         | "mlp.experts_down.folded_scale"
-        | "mlp.experts_down.folded_scale_r32" => {
+        | "mlp.experts_down.folded_scale_rows" => {
             format!("{prefix}mlp.experts.w2_weight_scale")
         }
         // NVFP4's per-expert scale is not stored as one tensor: it is `amax` divided
