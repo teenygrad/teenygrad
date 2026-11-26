@@ -39,7 +39,7 @@ git -C .beads push
 - Only `issues.jsonl`, `config.yaml`, `metadata.json` and `.gitignore` are tracked on the `beads` branch; `beads.db`, lock files and `last-touched` stay local.
 - `br` never runs git itself: after `br sync --flush-only`, commit and push from `.beads/` as above.
 - Never add `.beads` to a code branch, and never merge `beads` into `main` (or the reverse).
-- The pre-push hook skips clippy when only the `beads` branch is pushed.
+- Pushing from `.beads/` runs no git hooks: the relative `core.hooksPath` (`.githooks`) resolves inside that worktree, which has no `.githooks/`. If you push `beads` from the main checkout instead (`git push origin beads`), the pre-push hook sees only `refs/heads/beads` and skips clippy.
 - This repo is public, so everything written in an issue is public.
 
 ## Rust Engineering Standards
