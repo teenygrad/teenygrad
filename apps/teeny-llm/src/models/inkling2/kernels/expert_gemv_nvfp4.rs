@@ -124,7 +124,8 @@ pub fn quant_rows_q8_forward<T: Triton, D: Float, const BLOCK: i32>(
 pub fn expert_gemv_nvfp4_forward<T: Triton, D: Float, const ROWS: i32>(
     xq_ptr: InPtr<T::Pointer<f32>>,
     w_ptr: InPtr<T::Pointer<u8>>,
-    s_ptr: InPtr<T::Pointer<D>>,
+    s_ptr: InPtr<T::Pointer<u8>>,
+    es_ptr: InPtr<T::Pointer<D>>,
     ids_ptr: InPtr<T::Pointer<f32>>,
     y_ptr: OutPtr<T::Pointer<D>>,
     N: i32,
@@ -134,6 +135,7 @@ pub fn expert_gemv_nvfp4_forward<T: Triton, D: Float, const ROWS: i32>(
     IDS_OFFSET: i32,
     X_STRIDE: i32,
     SLOTS: i32,
+    ES_OFFSET: i32,
 ) where
     T: Triton<I32Tensor = <T as Triton>::Tensor<i32>>,
     T::I32Tensor: Tensor<i32, 1>,
@@ -143,6 +145,7 @@ pub fn expert_gemv_nvfp4_forward<T: Triton, D: Float, const ROWS: i32>(
     T::I32Tensor: core::ops::Mul<i32, Output = T::I32Tensor>,
     T::I32Tensor: core::ops::BitAnd<i32, Output = T::I32Tensor>,
     T::I32Tensor: core::ops::Shr<i32, Output = T::I32Tensor>,
+    T::I32Tensor: core::ops::Shl<i32, Output = T::I32Tensor>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
     T::Pointer<f32>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<f32>>>,
@@ -173,6 +176,22 @@ pub fn expert_gemv_nvfp4_forward<T: Triton, D: Float, const ROWS: i32>(
 
     if first == 1 {
         let lanes = T::arange(0, ROWS);
+        // The expert's outer scale, with E2M1's half folded in, after the block
+        // scale bytes in the same buffer.
+        let es = T::load(
+            es_ptr.add_offsets(T::zeros::<i32>(&[ROWS]) + (ES_OFFSET + expert)),
+            None,
+            None,
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
+        // E4M3 block scales: a normal byte's f32 bits are `((b & 0x7F) + 960) << 20`
+        // (exponent rebiased from 7 to 127, mantissa moved up); exponent 0 is
+        // `m * 2^-9`. Scales are never negative.
+        let sub9 = T::full(&[ROWS], D::from_f64(0.001_953_125));
 
         // E2M1 times two, by code: sign (c >> 3), exponent e and mantissa m in the low
         // three bits. e == 0 is m; otherwise (2 + m) << (e - 1).
@@ -231,16 +250,25 @@ pub fn expert_gemv_nvfp4_forward<T: Triton, D: Float, const ROWS: i32>(
                         let x1 = T::load_scalar_f32_as_i32(xq_ptr, xbase + j * 2 + 1) as i8 as i16;
                         iacc = iacc + wl * x0 + wh * x1;
                     }
-                    let ws = T::load(
-                        s_ptr.add_offsets(lanes + (sbase + b * ROWS)),
-                        None,
-                        None,
-                        &[],
-                        None,
-                        None,
+                    let sb = T::cast::<u8, i32>(
+                        T::load(
+                            s_ptr.add_offsets(lanes + (sbase + b * ROWS)),
+                            None,
+                            None,
+                            &[],
+                            None,
+                            None,
+                            None,
+                            false,
+                        ),
                         None,
                         false,
-                    );
+                    ) & 0x7F;
+                    let ws = T::where_(
+                        sb.lt(8),
+                        T::cast::<i32, D>(sb, None, false) * sub9,
+                        T::cast::<i32, D>((sb + 960) << 20, None, true),
+                    ) * es;
                     let xs = T::load(
                         xq_ptr.add_offsets(T::zeros::<i32>(&[ROWS]) + (xbase + K + b)),
                         None,
@@ -264,6 +292,29 @@ pub fn expert_gemv_nvfp4_forward<T: Triton, D: Float, const ROWS: i32>(
             }
         }
     }
+}
+
+/// Words in [`byte_scale_rows`]'s buffer: the block scale bytes four to a word, then
+/// one f32 per expert.
+pub fn byte_scale_words(experts: usize, n: usize, k: usize) -> usize {
+    experts * n * (k / QBLOCK) / 4 + experts
+}
+
+/// The scale buffer [`expert_gemv_nvfp4_forward`] reads: the E4M3 block scale bytes
+/// (`[experts, n, k / 16]`, one value per byte) interleaved by blocks of [`ROWS`]
+/// rows as the weights are, four to a word, then each expert's outer scale times
+/// E2M1's half (`scale2[e] * 0.5`).
+///
+/// A byte a block instead of the folded f32's four: a third of every NVFP4 expert's
+/// bytes, read once a token in decode and once at every load.
+pub fn byte_scale_rows(bytes: &[f32], scale2: &[f32], experts: usize, n: usize, k: usize) -> Vec<f32> {
+    let blocks = k / QBLOCK;
+    assert_eq!(bytes.len(), experts * n * blocks, "byte scales: size");
+    assert_eq!(scale2.len(), experts, "byte scales: one outer scale per expert");
+    let mut out = interleave_row_bytes(&super::super::weights::pack_rows(bytes, blocks), experts, n, blocks, ROWS);
+    out.truncate(experts * n * blocks / 4);
+    out.extend(scale2.iter().map(|s| s * 0.5));
+    out
 }
 
 /// Interleaves the packed NVFP4 bytes of `[experts, n]` rows, `row_bytes` each and
@@ -494,14 +545,11 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for ExpertGemvNvfp4Runtime
     fn param_shapes(&self, _input_shapes: &[&[usize]], _output_shape: &[usize]) -> Vec<Vec<usize>> {
         // The same element counts as the row-major gather's, interleaved by
         // `interleave_rows` at load time; the scales also carry E2M1's factor of 1/2.
-        vec![
-            vec![self.experts, self.n, self.k / 8],
-            vec![self.experts, self.n, self.k / QBLOCK],
-        ]
+        vec![vec![self.experts, self.n, self.k / 8], vec![byte_scale_words(self.experts, self.n, self.k)]]
     }
 
     fn param_names(&self) -> &'static [&'static str] {
-        &["weight_rows", "folded_scale_rows"]
+        &["weight_rows", "byte_scale_rows"]
     }
 
     fn pack_args(
@@ -523,6 +571,8 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for ExpertGemvNvfp4Runtime
         );
         visitor.visit_ptr(inputs[0].0);
         visitor.visit_ptr(params[0]);
+        // The block scale bytes, then the per-expert scales after them.
+        visitor.visit_ptr(params[1]);
         visitor.visit_ptr(params[1]);
         visitor.visit_ptr(inputs[1].0);
         visitor.visit_ptr(output);
@@ -534,6 +584,7 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for ExpertGemvNvfp4Runtime
         visitor.visit_i32((ids_stride - self.top_k) as i32);
         visitor.visit_i32(x_stride as i32);
         visitor.visit_i32(output_shape[0] as i32);
+        visitor.visit_i32((self.experts * self.n * (self.k / QBLOCK) / 4) as i32);
     }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {

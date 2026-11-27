@@ -31,7 +31,9 @@
 //! found at load time arrives as a failed read somewhere inside a step.
 
 use super::runner::checkpoint_name;
-use super::kernels::expert_gemv_nvfp4::{ROWS, interleave_row_bytes, interleave_rows};
+use super::kernels::expert_gemv_nvfp4::{
+    QBLOCK, ROWS, byte_scale_rows, interleave_row_bytes, interleave_rows,
+};
 use super::weights::{Checkpoint, Encoding, pack_rows};
 use crate::kernels::linear::{interleave_lanes, pack_bf16_halves, quantize_lanes_i8};
 
@@ -61,6 +63,11 @@ pub enum Source {
     /// Fold this NVFP4 scale as [`Source::FoldedScale`] does, halve it for the
     /// integer projection's E2M1-times-two weights, and interleave it by rows.
     InterleavedScale(String),
+    /// NVFP4's E4M3 block scale bytes interleaved by rows, then each expert's outer
+    /// scale halved ([`byte_scale_rows`]): from the raw bytes of an original
+    /// checkpoint, or stored as `<prefix>_scale.e4m3rows` in a converted one
+    /// (`inkling2_convert --add-compact`).
+    ByteScale(String),
     /// Read what the inner source reads, then pack it as bf16, two values to a word,
     /// for [`crate::kernels::linear::Linear4Bf16Op`]. The `.weight_bf16` slots.
     PackedBf16(Box<Source>),
@@ -103,6 +110,10 @@ fn resolve_slot(slot: &str, layer: usize) -> Source {
         | "mlp.experts_down.scale_rows" => {
                     Source::InterleavedWeight(checkpoint_name(slot, layer))
                 }
+                "mlp.experts.byte_scale_rows" | "mlp.experts_down.byte_scale_rows" => {
+                    let name = checkpoint_name(slot, layer);
+                    Source::ByteScale(name.strip_suffix("_scale").unwrap_or(&name).to_string())
+                }
                 "mlp.experts.folded_scale_rows" | "mlp.experts_down.folded_scale_rows" => {
                     let name = checkpoint_name(slot, layer);
                     Source::InterleavedScale(
@@ -142,7 +153,13 @@ fn missing_tensor(ck: &Checkpoint, src: &Source) -> Option<String> {
         Source::Tensor(name) | Source::Transposed(name, _) | Source::InterleavedWeight(name) => {
             (!ck.has(name)).then(|| name.clone())
         }
-        Source::FoldedScale(prefix) | Source::InterleavedScale(prefix) => {
+        // A converted checkpoint folded its scale bytes away; only the compact
+        // tensor carries them.
+        Source::ByteScale(prefix) if ck.is_converted() => {
+            let stored = byte_scale_name(prefix);
+            (!ck.has(&stored)).then_some(stored)
+        }
+        Source::FoldedScale(prefix) | Source::InterleavedScale(prefix) | Source::ByteScale(prefix) => {
             let scale = format!("{prefix}_scale");
             (!ck.has(&scale)).then_some(scale)
         }
@@ -193,6 +210,17 @@ pub fn read(
         .collect()
 }
 
+/// The name a converted checkpoint stores a weight already packed as bf16 pairs
+/// under (`inkling2_convert --add-compact`).
+pub fn bf16_name(name: &str) -> String {
+    format!("{name}.bf16")
+}
+
+/// The name a converted checkpoint stores an NVFP4 projection's byte scales under.
+pub fn byte_scale_name(prefix: &str) -> String {
+    format!("{prefix}_scale.e4m3rows")
+}
+
 /// The stored tensor a slot's values are, unchanged, if there is one: then they can
 /// go from the checkpoint's mapping to the device without a copy in between.
 ///
@@ -203,6 +231,11 @@ fn stored_as_is(ck: &Checkpoint, src: &Source) -> Option<String> {
         Source::Tensor(name) => name.clone(),
         Source::InterleavedWeight(name) if ck.is_converted() => name.clone(),
         Source::InterleavedScale(prefix) if ck.is_converted() => format!("{prefix}_scale"),
+        Source::ByteScale(prefix) => byte_scale_name(prefix),
+        Source::PackedBf16(inner) => match inner.as_ref() {
+            Source::Tensor(name) => bf16_name(name),
+            _ => return None,
+        },
         Source::LanesI8(inner) => match inner.as_ref() {
             Source::Tensor(name) => format!("{name}.i8"),
             _ => return None,
@@ -265,6 +298,12 @@ fn read_source(
                 declared.len() == 2,
                 "slot {slot} is declared {declared:?}, expected [rows, words]"
             );
+            if let Source::Tensor(name) = inner.as_ref() {
+                let stored = bf16_name(name);
+                if ck.has(&stored) {
+                    return ck.param(&stored).map_err(|e| anyhow::anyhow!("slot {slot} reads {stored}: {e}"));
+                }
+            }
             let values = read_source(ck, slot, inner, declared)?;
             pack_bf16_halves(&values, declared[0], declared[1] * 2)
                 .map_err(|e| anyhow::anyhow!("slot {slot}: {e}"))?
@@ -338,6 +377,28 @@ fn read_source(
             // Four bytes, eight weights, to a word.
             let row_bytes = words.len() / (experts * rows) * 4;
             interleave_row_bytes(&words, experts, rows, row_bytes, ROWS)
+        }
+        Source::ByteScale(prefix) => {
+            let stored = byte_scale_name(prefix);
+            if ck.has(&stored) {
+                return ck.param(&stored).map_err(|e| anyhow::anyhow!("slot {slot} reads {stored}: {e}"));
+            }
+            anyhow::ensure!(
+                !ck.is_converted(),
+                "slot {slot}: this converted checkpoint has no {stored}; run \
+                 inkling2_convert --model <original> --add-compact <converted> once"
+            );
+            let (bytes, shape, enc) = ck
+                .tensor(&format!("{prefix}_scale"))
+                .map_err(|e| anyhow::anyhow!("slot {slot} reads {prefix}_scale: {e}"))?;
+            anyhow::ensure!(
+                enc == Encoding::Bytes && shape.len() == 3,
+                "slot {slot}: {prefix}_scale is {shape:?}, expected [experts, rows, blocks] of E4M3 bytes"
+            );
+            let scale2 = ck
+                .expert_scale2(prefix)
+                .map_err(|e| anyhow::anyhow!("slot {slot} scales from {prefix}: {e}"))?;
+            byte_scale_rows(&bytes, &scale2, shape[0], shape[1], shape[2] * QBLOCK)
         }
         Source::InterleavedScale(prefix) => {
             let (experts, rows) = expert_rows(slot, declared)?;
