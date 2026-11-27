@@ -73,10 +73,7 @@ use super::kernels::{
     swiglu::SwigluOp,
 };
 use super::runner::Quant;
-use crate::kernels::linear::Linear4Bf16Op;
-
-/// Block width for the linear kernel, as in the Gemma port.
-const LINEAR_BLOCK: i32 = 16;
+use crate::kernels::linear::{LANES, Linear4Bf16Op, LinearLanesBf16Op};
 
 fn wrap(like: &SymTensor, node_id: usize, shape: Shape) -> SymTensor {
     SymTensor {
@@ -97,17 +94,20 @@ fn add(a: &SymTensor, b: &SymTensor) -> SymTensor {
     wrap(a, node_id, shape)
 }
 
-/// Records a bias-free linear in the current scope, naming its slot `weight_bf16`.
+/// Records a bias-free linear in the current scope, naming its slot `weight_lanes`.
 ///
 /// Every linear weight in the checkpoint is bf16, so it is kept as bf16, two to a
 /// word, and widened exactly in the kernel: half the bytes of f32 for the same
-/// arithmetic, on projections that run at memory bandwidth.
+/// arithmetic, on projections that run at memory bandwidth. Output features are
+/// the lanes, so a batch of rows unpacks each weight once. A projection too narrow
+/// for whole blocks of lanes (24 outputs) keeps the lanes-along-`K` kernel and its
+/// `weight_bf16` slot.
 fn linear<D: FloatBytes + Send + Sync + 'static>(x: &SymTensor, k: usize, n: usize) -> SymTensor {
-    x.record_custom(
-        CustomData::new(Linear4Bf16Op::<D>::new(k, n, LINEAR_BLOCK)),
-        &[],
-        None,
-    )
+    if n.is_multiple_of(LANES) {
+        x.record_custom(CustomData::new(LinearLanesBf16Op::<D>::new(k, n)), &[], None)
+    } else {
+        x.record_custom(CustomData::new(Linear4Bf16Op::<D>::new(k, n, 16)), &[], None)
+    }
 }
 
 /// Re-packs the router's ids so the down projection can be gathered with `top_k = 1`.

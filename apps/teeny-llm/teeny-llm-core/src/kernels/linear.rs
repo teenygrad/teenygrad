@@ -664,3 +664,221 @@ mod bf16_tests {
         assert!(pack_bf16_halves(&[1.0, 1.0 + f32::EPSILON], 1, 2).is_err());
     }
 }
+
+// ---------------------------------------------------------------------------
+// Output features as lanes
+// ---------------------------------------------------------------------------
+
+/// Output features per program of [`linear_lanes_bf16_forward`]: one f32 vector at
+/// LMUL 2 on a VLEN=256 core, so four row accumulators fit with room to spare.
+pub const LANES: usize = 16;
+
+/// Rows a program of [`linear_lanes_bf16_forward`] computes at once.
+pub const ROW_TILE: usize = 4;
+
+/// [`linear4_bf16_forward`] with output features as lanes, for batches of rows.
+///
+/// The reduction runs down `K` with one input value per step broadcast across
+/// [`LANES`] outputs, so a weight word is loaded and unpacked once and feeds up to
+/// [`ROW_TILE`] rows' accumulators, with no horizontal sum. The lanes-along-`K`
+/// kernel unpacks every word again for every row, which made a four-row step cost
+/// twice a one-row step for the same weight bytes.
+///
+/// Weights are [`pack_bf16_halves`] words interleaved by blocks of [`LANES`]
+/// outputs ([`interleave_lanes`]): `[N / LANES][K / 2][LANES]`. A tile with one
+/// row left takes a one-accumulator loop, so a single token pays nothing for the
+/// tiling; a partial tile of two or three rows repeats its last row.
+///
+/// Grid: `(N / LANES, ceil(M / ROW_TILE))`.
+#[allow(clippy::multiple_bound_locations)]
+#[kernel]
+pub fn linear_lanes_bf16_forward<T: Triton, D: Float, const LANES: i32>(
+    x_ptr: InPtr<T::Pointer<D>>,
+    w_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: OutPtr<T::Pointer<D>>,
+    M: i32,
+    N: i32,
+    K: i32,
+) where
+    T: Triton<I32Tensor = <T as Triton>::Tensor<i32>>,
+    T::I32Tensor: Tensor<i32, 1>,
+    T::I32Tensor: core::ops::Add<i32, Output = T::I32Tensor>,
+    T::I32Tensor: core::ops::BitAnd<i32, Output = T::I32Tensor>,
+    T::I32Tensor: core::ops::Shl<i32, Output = T::I32Tensor>,
+    T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
+{
+    let nb = T::program_id(Axis::X);
+    let rt = T::program_id(Axis::Y);
+    let half_k = K / 2;
+    let lanes = T::arange(0, LANES);
+    let splat = T::zeros::<i32>(&[LANES]);
+    let wbase = nb * half_k * LANES;
+    let r0 = rt * 4;
+    let col = nb * LANES;
+
+    if M - r0 == 1 {
+        let x0 = r0 * K;
+        let mut a0 = T::zeros::<D>(&[LANES]);
+        for j in 0..half_k {
+            let w = T::cast::<D, i32>(
+                T::load(w_ptr.add_offsets(lanes + (wbase + j * LANES)), None, None, &[], None, None, None, false),
+                None,
+                true,
+            );
+            let lo = T::cast::<i32, D>(w << 16, None, true);
+            let hi = T::cast::<i32, D>(w & -65536, None, true);
+            let xl = T::load(x_ptr.add_offsets(splat + (x0 + j)), None, None, &[], None, None, None, false);
+            let xh = T::load(x_ptr.add_offsets(splat + (x0 + half_k + j)), None, None, &[], None, None, None, false);
+            a0 = a0 + lo * xl + hi * xh;
+        }
+        T::store(y_ptr.add_offsets(lanes + (r0 * N + col)), a0, None, &[], None, None);
+    } else {
+        // Rows past the end repeat the last one: they store the same values to the
+        // same place, which costs a little arithmetic and no masks.
+        let last = M - 1;
+        let r1 = if r0 + 1 < M { r0 + 1 } else { last };
+        let r2 = if r0 + 2 < M { r0 + 2 } else { last };
+        let r3 = if r0 + 3 < M { r0 + 3 } else { last };
+        let x0 = r0 * K;
+        let x1 = r1 * K;
+        let x2 = r2 * K;
+        let x3 = r3 * K;
+        let mut a0 = T::zeros::<D>(&[LANES]);
+        let mut a1 = T::zeros::<D>(&[LANES]);
+        let mut a2 = T::zeros::<D>(&[LANES]);
+        let mut a3 = T::zeros::<D>(&[LANES]);
+        for j in 0..half_k {
+            let w = T::cast::<D, i32>(
+                T::load(w_ptr.add_offsets(lanes + (wbase + j * LANES)), None, None, &[], None, None, None, false),
+                None,
+                true,
+            );
+            let lo = T::cast::<i32, D>(w << 16, None, true);
+            let hi = T::cast::<i32, D>(w & -65536, None, true);
+            let h = half_k + j;
+            a0 = a0
+                + lo * T::load(x_ptr.add_offsets(splat + (x0 + j)), None, None, &[], None, None, None, false)
+                + hi * T::load(x_ptr.add_offsets(splat + (x0 + h)), None, None, &[], None, None, None, false);
+            a1 = a1
+                + lo * T::load(x_ptr.add_offsets(splat + (x1 + j)), None, None, &[], None, None, None, false)
+                + hi * T::load(x_ptr.add_offsets(splat + (x1 + h)), None, None, &[], None, None, None, false);
+            a2 = a2
+                + lo * T::load(x_ptr.add_offsets(splat + (x2 + j)), None, None, &[], None, None, None, false)
+                + hi * T::load(x_ptr.add_offsets(splat + (x2 + h)), None, None, &[], None, None, None, false);
+            a3 = a3
+                + lo * T::load(x_ptr.add_offsets(splat + (x3 + j)), None, None, &[], None, None, None, false)
+                + hi * T::load(x_ptr.add_offsets(splat + (x3 + h)), None, None, &[], None, None, None, false);
+        }
+        T::store(y_ptr.add_offsets(lanes + (r0 * N + col)), a0, None, &[], None, None);
+        T::store(y_ptr.add_offsets(lanes + (r1 * N + col)), a1, None, &[], None, None);
+        T::store(y_ptr.add_offsets(lanes + (r2 * N + col)), a2, None, &[], None, None);
+        T::store(y_ptr.add_offsets(lanes + (r3 * N + col)), a3, None, &[], None, None);
+    }
+}
+
+/// Reorders [`pack_bf16_halves`] words `[n, words]` into the `[n / LANES][words][LANES]`
+/// blocks [`linear_lanes_bf16_forward`] reads, so a step down `K` is one contiguous
+/// load.
+pub fn interleave_lanes(packed: &[f32], n: usize, words: usize) -> Result<Vec<f32>, String> {
+    if n % LANES != 0 || packed.len() != n * words {
+        return Err(format!(
+            "lanes interleave: {} words are not {n} rows (a multiple of {LANES}) of {words}",
+            packed.len()
+        ));
+    }
+    let mut out = vec![0.0f32; packed.len()];
+    for (r, row) in packed.chunks_exact(words).enumerate() {
+        let (block, lane) = (r / LANES, r % LANES);
+        for (j, &v) in row.iter().enumerate() {
+            out[(block * words + j) * LANES + lane] = v;
+        }
+    }
+    Ok(out)
+}
+
+/// A bias-free linear on bf16 weights with output features as lanes, for
+/// [`linear_lanes_bf16_forward`]. Weight slot `weight_lanes`, `[N, K / 2]` words in
+/// the order [`interleave_lanes`] gives.
+pub struct LinearLanesBf16Op<D: FloatBytes + Send + Sync + 'static> {
+    /// Input features `K` (even).
+    pub k: usize,
+    /// Output features `N` (a multiple of [`LANES`]).
+    pub n: usize,
+    _phantom: PhantomData<D>,
+}
+
+impl<D: FloatBytes + Send + Sync + 'static> LinearLanesBf16Op<D> {
+    /// Creates the op.
+    pub fn new(k: usize, n: usize) -> Self {
+        assert!(n.is_multiple_of(LANES), "linear lanes: {n} outputs are not a multiple of {LANES}");
+        assert!(k.is_multiple_of(2), "linear lanes: in features must be even");
+        Self { k, n, _phantom: PhantomData }
+    }
+}
+
+impl<D: FloatBytes + Send + Sync + 'static> CustomOp for LinearLanesBf16Op<D> {
+    fn name(&self) -> &str {
+        "linear_lanes_bf16"
+    }
+
+    fn infer_output_shape(&self, input_shapes: &[&Shape]) -> Shape {
+        vec![input_shapes[0][0], Some(self.n)]
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn lower(&self) -> Option<(String, String, String, Arc<dyn RuntimeOp>)> {
+        let kernel = LinearLanesBf16Forward::<D>::new(LANES as i32);
+        Some((
+            "linear_lanes_bf16_forward".to_string(),
+            kernel.source,
+            "entry_point".to_string(),
+            Arc::new(LinearLanesBf16RuntimeOp::<D> { k: self.k, n: self.n, _phantom: PhantomData }),
+        ))
+    }
+}
+
+/// Runtime dispatch for [`LinearLanesBf16Op`].
+pub struct LinearLanesBf16RuntimeOp<D: FloatBytes + Send + Sync + 'static> {
+    k: usize,
+    n: usize,
+    _phantom: PhantomData<D>,
+}
+
+impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for LinearLanesBf16RuntimeOp<D> {
+    fn n_activation_inputs(&self) -> usize {
+        1
+    }
+
+    fn param_shapes(&self, _input_shapes: &[&[usize]], _output_shape: &[usize]) -> Vec<Vec<usize>> {
+        vec![vec![self.n, self.k / 2]]
+    }
+
+    fn param_names(&self) -> &'static [&'static str] {
+        &["weight_lanes"]
+    }
+
+    fn pack_args(
+        &self,
+        inputs: &[(RawPtr, &[usize])],
+        params: &[RawPtr],
+        output: RawPtr,
+        output_shape: &[usize],
+        _output_row_stride: i32,
+        visitor: &mut dyn ArgVisitor,
+    ) {
+        assert_eq!(inputs[0].1[1], self.k, "linear lanes: input features");
+        visitor.visit_ptr(inputs[0].0);
+        visitor.visit_ptr(params[0]);
+        visitor.visit_ptr(output);
+        visitor.visit_i32(output_shape[0] as i32);
+        visitor.visit_i32(self.n as i32);
+        visitor.visit_i32(self.k as i32);
+    }
+
+    fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
+        [(self.n / LANES) as u32, output_shape[0].div_ceil(ROW_TILE) as u32, 1]
+    }
+}
