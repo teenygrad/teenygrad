@@ -226,9 +226,69 @@ pub struct Engine<'d> {
     state: State,
     /// Tokens whose keys and values are in the cache.
     pub tokens: Vec<u32>,
+    /// Whether [`Self::step_many`] keeps what [`Self::truncate`] needs to undo it.
+    /// Off by default: it costs a copy of every convolution window a step.
+    keep_undo: bool,
+    /// How to undo the last step, when [`Self::keep_undo`] is on.
+    undo: Option<StepUndo>,
+}
+
+/// What a step changed that cannot be undone by shortening the sequence: the
+/// convolution windows. The KV caches need no record, since attention reads only up
+/// to the sequence length and the next step overwrites what lies past it.
+struct StepUndo {
+    /// The sequence length before the step.
+    start: usize,
+    /// Every cache slot's four windows before the step.
+    conv_before: Vec<[Vec<f32>; 4]>,
+    /// The rows each slot's windows were rolled forward by, per window, in order.
+    conv_rows: Vec<[Vec<f32>; 4]>,
 }
 
 impl<'d> Engine<'d> {
+    /// Keeps, from now on, what [`Self::truncate`] needs to take back the latest step's
+    /// tokens. Speculative decoding turns this on; plain decoding has no need of it.
+    pub fn keep_undo(&mut self, on: bool) {
+        self.keep_undo = on;
+        if !on {
+            self.undo = None;
+        }
+    }
+
+    /// Takes the sequence back to `len` tokens, within the latest step: as if that
+    /// step had been given only its first `len - start` tokens.
+    ///
+    /// This is how rejected draft tokens are discarded. Fails if undo is not kept or
+    /// `len` lies outside the latest step.
+    pub fn truncate(&mut self, len: usize) -> anyhow::Result<()> {
+        let undo = self
+            .undo
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("truncate needs keep_undo before the step"))?;
+        anyhow::ensure!(
+            (undo.start..=self.state.len).contains(&len),
+            "can only truncate to {}..={}, not {len}",
+            undo.start,
+            self.state.len
+        );
+        let keep = len - undo.start;
+        let hid = self.cfg.hidden_size;
+        let kv = self.cfg.num_key_value_heads * self.cfg.head_dim;
+        for (slot, (before, rows)) in undo.conv_before.iter().zip(&undo.conv_rows).enumerate() {
+            for which in 0..4 {
+                let width = if which < 2 { kv } else { hid };
+                self.state.conv[slot][which].clone_from(&before[which]);
+                let kept = (keep * width).min(rows[which].len());
+                self.state.roll_conv(slot, which, &rows[which][..kept], width);
+            }
+        }
+        self.state.len = len;
+        self.past.set(len);
+        self.tokens.truncate(len);
+        Ok(())
+    }
+
+
     /// Compiles every graph and loads every weight. This is the slow part: the
     /// parameters are around 22 GB for Inkling-2-Mini.
     pub fn load(
@@ -327,13 +387,14 @@ impl<'d> Engine<'d> {
         // however many times its layer runs.
         let per = cfg.n_layers_per_attn_res_block;
         let head_states = (0..cfg.num_hidden_layers).filter(|l| l % per == 0).count();
+        // Per token like the layers, so a verify step can have every row's logits.
         let head = {
-            let b = Builder::new(&[head_states.max(1), hid]);
-            let partial = b.input(&[1, hid]);
+            let b = Builder::new_dyn(&[t, Some(head_states.max(1)), Some(hid)]);
+            let partial = b.input_dyn(&[t, Some(hid)]);
             let out =
                 build_head::<f32>(&cfg, &partial, &b.first, head_states, mup_width_multiplier);
             let g: &Graph = &b.graph.borrow();
-            Compiled::new(device, g, &[&out], 1, ck, 0)?
+            Compiled::new(device, g, &[&out], MAX_TOKENS, ck, 0)?
         };
 
         if let Ok(path) = std::env::var("INKLING2_DUMP_SHAPES") {
@@ -360,6 +421,8 @@ impl<'d> Engine<'d> {
             past,
             state,
             tokens: Vec::new(),
+            keep_undo: false,
+            undo: None,
         })
     }
 
@@ -380,6 +443,26 @@ impl<'d> Engine<'d> {
         device: &runtime::Device<'d>,
         tokens: &[u32],
     ) -> anyhow::Result<Vec<f32>> {
+        let mut rows = self.step_rows(device, tokens, false)?;
+        Ok(rows.pop().expect("a step has at least one token"))
+    }
+
+    /// [`Self::step_many`], returning every token's logits rather than the last's:
+    /// what checking a run of drafted tokens needs.
+    pub fn step_many_logits(
+        &mut self,
+        device: &runtime::Device<'d>,
+        tokens: &[u32],
+    ) -> anyhow::Result<Vec<Vec<f32>>> {
+        self.step_rows(device, tokens, true)
+    }
+
+    fn step_rows(
+        &mut self,
+        device: &runtime::Device<'d>,
+        tokens: &[u32],
+        all_rows: bool,
+    ) -> anyhow::Result<Vec<Vec<f32>>> {
         let t = tokens.len();
         anyhow::ensure!(
             (1..=MAX_TOKENS).contains(&t),
@@ -388,6 +471,11 @@ impl<'d> Engine<'d> {
         for graph in self.layers.iter_mut().chain([&mut self.embed, &mut self.messages]) {
             graph.set_rows(t)?;
         }
+        self.undo = self.keep_undo.then(|| StepUndo {
+            start: self.state.len,
+            conv_before: self.state.conv.clone(),
+            conv_rows: vec![Default::default(); self.state.conv.len()],
+        });
         let hid = self.cfg.hidden_size;
         let kw = self.cfg.sconv_kernel_size - 1;
         let kv = self.cfg.num_key_value_heads * self.cfg.head_dim;
@@ -519,6 +607,9 @@ impl<'d> Engine<'d> {
                     for (which, data) in [conv0, conv1, conv2, conv3].iter().enumerate() {
                         let width = if which < 2 { kv } else { hid };
                         self.state.roll_conv(slot, which, data, width);
+                        if let Some(undo) = self.undo.as_mut() {
+                            undo.conv_rows[slot][which].clone_from(data);
+                        }
                     }
                     if trace_to.is_some() {
                         trace.extend_from_slice(&x);
@@ -541,10 +632,18 @@ impl<'d> Engine<'d> {
         self.state.len += t;
         self.past.set(self.state.len);
         self.tokens.extend_from_slice(tokens);
+        if all_rows {
+            self.head.set_rows(t)?;
+            let head_blocks = interleave_blocks(&self.state.blocks, t, hid);
+            let logits = self.head.run(device, &[&head_blocks, &x])?.remove(0);
+            let vocab = logits.len() / t;
+            return Ok(logits.chunks(vocab).map(<[f32]>::to_vec).collect());
+        }
         // Only the last token's logits are wanted: its block states and hidden state.
+        self.head.set_rows(1)?;
         let last = |v: &[f32]| v[(t - 1) * hid..t * hid].to_vec();
         let head_blocks: Vec<f32> = self.state.blocks.iter().flat_map(|b| last(b)).collect();
-        Ok(self.head.run(device, &[&head_blocks, &last(&x)])?.remove(0))
+        Ok(vec![self.head.run(device, &[&head_blocks, &last(&x)])?.remove(0)])
     }
 
     /// The most likely next token, masked to the real vocabulary.

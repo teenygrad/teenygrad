@@ -59,6 +59,11 @@ struct Args {
     /// weight once for all its tokens. 1 feeds the prompt a token at a time.
     #[arg(long, default_value_t = teeny_llm::models::inkling2::engine::MAX_TOKENS)]
     prompt_chunk: usize,
+    /// Check rollback: step each generated token together with two junk tokens, keep
+    /// the first row's logits and truncate the junk away. The output must be the
+    /// same as without it.
+    #[arg(long)]
+    rewind_check: bool,
     /// A system turn to open the conversation with.
     #[arg(long)]
     system: Option<String>,
@@ -175,7 +180,14 @@ fn main() -> anyhow::Result<()> {
                 eprintln!("\n  [out of context]");
                 break;
             }
-            logits = engine.step(&device, next)?;
+            if args.rewind_check {
+                engine.keep_undo(true);
+                let mut rows = engine.step_many_logits(&device, &[next, 13, 42])?;
+                engine.truncate(engine.len() - 2)?;
+                logits = rows.swap_remove(0);
+            } else {
+                logits = engine.step(&device, next)?;
+            }
         }
         let gen_s = t_gen.elapsed().as_secs_f64();
         println!();
