@@ -133,6 +133,7 @@ pub fn expert_gemv_nvfp4_forward<T: Triton, D: Float, const ROWS: i32>(
     IDS_STRIDE: i32,
     IDS_OFFSET: i32,
     X_STRIDE: i32,
+    SLOTS: i32,
 ) where
     T: Triton<I32Tensor = <T as Triton>::Tensor<i32>>,
     T::I32Tensor: Tensor<i32, 1>,
@@ -157,91 +158,112 @@ pub fn expert_gemv_nvfp4_forward<T: Triton, D: Float, const ROWS: i32>(
     let which = slot - token * TOP_K;
     let expert = T::load_scalar_f32_as_i32(ids_ptr, token * IDS_STRIDE + IDS_OFFSET + which);
 
-    let lanes = T::arange(0, ROWS);
-
-    // E2M1 times two, by code: sign (c >> 3), exponent e and mantissa m in the low
-    // three bits. e == 0 is m; otherwise (2 + m) << (e - 1).
-    let code = T::arange(0, 16);
-    let rest = code & 7;
-    let e = rest >> 1;
-    let m = rest & 1;
-    let normal = m + 2;
-    let mag = T::where_(
-        e.eq(0),
-        m,
-        T::where_(e.eq(1), normal, T::where_(e.eq(2), normal * 2, normal * 4)),
-    );
-    let lut = T::cast::<i32, i8>(
-        T::where_((code >> 3).eq(1), T::zeros::<i32>(&[16]) - mag, mag),
-        None,
-        false,
-    );
-
-    // The rows' bytes for byte j are adjacent: [expert][row block][byte][row]. A
-    // byte holds a row's elements 2j (low nibble) and 2j + 1 (high nibble).
-    let bytes_per_row = K / 2;
-    let blocks = K / 16;
-    let row_block = expert * (N / ROWS) + rb;
-    let wbase = row_block * bytes_per_row * ROWS;
-    let sbase = row_block * blocks * ROWS;
-    let xbase = token * X_STRIDE;
-
-    let mut acc = T::zeros::<D>(&[ROWS]);
-    for b in 0..blocks {
-        // A block sums to at most 16 * 12 * 127 = 24384, so 16 bits hold it exactly.
-        let mut iacc = T::zeros::<i16>(&[ROWS]);
-        for t in 0..8 {
-            let j = b * 8 + t;
-            let byte = T::load(
-                w_ptr.add_offsets(lanes + (wbase + j * ROWS)),
-                None,
-                None,
-                &[],
-                None,
-                None,
-                None,
-                false,
-            );
-            let lo = T::cast::<u8, i32>(byte & 15u8, None, false);
-            let hi = T::cast::<u8, i32>(byte >> 4u8, None, false);
-            let wl = T::cast::<i8, i16>(T::gather(lut, lo, 0), None, false);
-            let wh = T::cast::<i8, i16>(T::gather(lut, hi, 0), None, false);
-            // Through i8 so the compiler can see both factors are 8-bit and use one
-            // widening multiply-accumulate (vwmacc) instead of extending each weight.
-            let x0 = T::load_scalar_f32_as_i32(xq_ptr, xbase + j * 2) as i8 as i16;
-            let x1 = T::load_scalar_f32_as_i32(xq_ptr, xbase + j * 2 + 1) as i8 as i16;
-            iacc = iacc + wl * x0 + wh * x1;
+    // The first slot routed to an expert computes every slot routed to it, one after
+    // another, so a batch reads that expert's weights from memory once and from cache
+    // for the rest; a later slot with the same expert has nothing left to do. With
+    // one token the router's choices are distinct and every slot is first.
+    let mut first = 1;
+    for earlier in 0..slot {
+        let t = earlier / TOP_K;
+        let id = T::load_scalar_f32_as_i32(ids_ptr, t * IDS_STRIDE + IDS_OFFSET + (earlier - t * TOP_K));
+        if id == expert {
+            first = 0;
         }
-        let ws = T::load(
-            s_ptr.add_offsets(lanes + (sbase + b * ROWS)),
-            None,
-            None,
-            &[],
-            None,
-            None,
-            None,
-            false,
-        );
-        let xs = T::load(
-            xq_ptr.add_offsets(T::zeros::<i32>(&[ROWS]) + (xbase + K + b)),
-            None,
-            None,
-            &[],
-            None,
-            None,
-            None,
-            false,
-        );
-        acc = acc + T::cast::<i16, D>(iacc, None, false) * ws * T::cast::<f32, D>(xs, None, false);
     }
-    T::store(
-        y_ptr.add_offsets(lanes + (slot * N + rb * ROWS)),
-        acc,
-        None,
-        &[],
-        None,
-        None,
-    );
+
+    if first == 1 {
+        let lanes = T::arange(0, ROWS);
+
+        // E2M1 times two, by code: sign (c >> 3), exponent e and mantissa m in the low
+        // three bits. e == 0 is m; otherwise (2 + m) << (e - 1).
+        let code = T::arange(0, 16);
+        let rest = code & 7;
+        let e = rest >> 1;
+        let m = rest & 1;
+        let normal = m + 2;
+        let mag = T::where_(
+            e.eq(0),
+            m,
+            T::where_(e.eq(1), normal, T::where_(e.eq(2), normal * 2, normal * 4)),
+        );
+        let lut = T::cast::<i32, i8>(
+            T::where_((code >> 3).eq(1), T::zeros::<i32>(&[16]) - mag, mag),
+            None,
+            false,
+        );
+
+        // The rows' bytes for byte j are adjacent: [expert][row block][byte][row]. A
+        // byte holds a row's elements 2j (low nibble) and 2j + 1 (high nibble).
+        let bytes_per_row = K / 2;
+        let blocks = K / 16;
+        let row_block = expert * (N / ROWS) + rb;
+        let wbase = row_block * bytes_per_row * ROWS;
+        let sbase = row_block * blocks * ROWS;
+        for s in slot..SLOTS {
+            let st = s / TOP_K;
+            let sid = T::load_scalar_f32_as_i32(ids_ptr, st * IDS_STRIDE + IDS_OFFSET + (s - st * TOP_K));
+            if sid == expert {
+                let xbase = st * X_STRIDE;
+
+                let mut acc = T::zeros::<D>(&[ROWS]);
+                for b in 0..blocks {
+                    // A block sums to at most 16 * 12 * 127 = 24384, so 16 bits hold it exactly.
+                    let mut iacc = T::zeros::<i16>(&[ROWS]);
+                    for t in 0..8 {
+                        let j = b * 8 + t;
+                        let byte = T::load(
+                            w_ptr.add_offsets(lanes + (wbase + j * ROWS)),
+                            None,
+                            None,
+                            &[],
+                            None,
+                            None,
+                            None,
+                            false,
+                        );
+                        let lo = T::cast::<u8, i32>(byte & 15u8, None, false);
+                        let hi = T::cast::<u8, i32>(byte >> 4u8, None, false);
+                        let wl = T::cast::<i8, i16>(T::gather(lut, lo, 0), None, false);
+                        let wh = T::cast::<i8, i16>(T::gather(lut, hi, 0), None, false);
+                        // Through i8 so the compiler can see both factors are 8-bit and use one
+                        // widening multiply-accumulate (vwmacc) instead of extending each weight.
+                        let x0 = T::load_scalar_f32_as_i32(xq_ptr, xbase + j * 2) as i8 as i16;
+                        let x1 = T::load_scalar_f32_as_i32(xq_ptr, xbase + j * 2 + 1) as i8 as i16;
+                        iacc = iacc + wl * x0 + wh * x1;
+                    }
+                    let ws = T::load(
+                        s_ptr.add_offsets(lanes + (sbase + b * ROWS)),
+                        None,
+                        None,
+                        &[],
+                        None,
+                        None,
+                        None,
+                        false,
+                    );
+                    let xs = T::load(
+                        xq_ptr.add_offsets(T::zeros::<i32>(&[ROWS]) + (xbase + K + b)),
+                        None,
+                        None,
+                        &[],
+                        None,
+                        None,
+                        None,
+                        false,
+                    );
+                    acc = acc + T::cast::<i16, D>(iacc, None, false) * ws * T::cast::<f32, D>(xs, None, false);
+                }
+                T::store(
+                    y_ptr.add_offsets(lanes + (s * N + rb * ROWS)),
+                    acc,
+                    None,
+                    &[],
+                    None,
+                    None,
+                );
+            }
+        }
+    }
 }
 
 /// Interleaves the packed NVFP4 bytes of `[experts, n]` rows, `row_bytes` each and
@@ -487,7 +509,7 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for ExpertGemvNvfp4Runtime
         inputs: &[(RawPtr, &[usize])],
         params: &[RawPtr],
         output: RawPtr,
-        _output_shape: &[usize],
+        output_shape: &[usize],
         _output_row_stride: i32,
         visitor: &mut dyn ArgVisitor,
     ) {
@@ -511,6 +533,7 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for ExpertGemvNvfp4Runtime
         // The ids sit after the weights in the router's packed row.
         visitor.visit_i32((ids_stride - self.top_k) as i32);
         visitor.visit_i32(x_stride as i32);
+        visitor.visit_i32(output_shape[0] as i32);
     }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
