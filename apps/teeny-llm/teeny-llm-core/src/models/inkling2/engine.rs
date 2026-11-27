@@ -338,10 +338,7 @@ impl<'d> Engine<'d> {
 
         if let Ok(path) = std::env::var("INKLING2_DUMP_SHAPES") {
             let mut text = String::new();
-            for (name, graph) in [("embed", &embed), ("messages", &messages), ("head", &head)]
-                .into_iter()
-                .chain(layers.iter().enumerate().map(|(i, l)| (["layer"; 1][0], l)).take(0))
-            {
+            for (name, graph) in [("embed", &embed), ("messages", &messages), ("head", &head)] {
                 for (node, shape) in graph.model.node_shapes() {
                     text += &format!("{name}\t{node}\t{shape:?}\n");
                 }
