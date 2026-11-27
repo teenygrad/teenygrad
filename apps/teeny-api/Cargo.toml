@@ -1,0 +1,66 @@
+[package]
+name = "teeny-api"
+version.workspace = true
+edition.workspace = true
+description = "OpenAI-compatible HTTP API server for teenygrad inference: LLMs (chat, completions, embeddings, moderations), audio and images, each a feature."
+repository.workspace = true
+license.workspace = true
+homepage.workspace = true
+readme = "README.md"
+documentation = "https://docs.teenygrad.org/api/teenygrad/teeny_api/"
+keywords = ["llm", "inference", "server", "openai", "openapi"]
+categories = ["science", "web-programming::http-server"]
+
+[[bin]]
+name = "teeny-api"
+path = "src/main.rs"
+
+[features]
+# The LLM APIs (chat, completions, embeddings, moderations) and no model, so the binary
+# builds anywhere (and its tests need no GPU driver). Add a model and its backend:
+# `--features functiongemma3,cuda` (or `riscv`, `qemu`).
+default = ["llm"]
+# Chat, completions, embeddings and moderations, served by teeny-llm models.
+llm = ["dep:teeny-llm"]
+# Transcriptions, translations and speech, served by teeny-audio models.
+audio = ["dep:teeny-audio"]
+# Image generations, edits and variations, served by teeny-image models.
+image = ["dep:teeny-image"]
+functiongemma3 = ["llm", "teeny-llm/functiongemma3"]
+cuda = ["teeny-llm?/cuda"]
+riscv = ["teeny-llm?/riscv"]
+qemu = ["teeny-llm?/qemu"]
+
+[dependencies]
+teeny-llm = { workspace = true, optional = true }
+teeny-audio = { workspace = true, optional = true }
+teeny-image = { workspace = true, optional = true }
+anyhow = { workspace = true, features = ["std"] }
+axum = { workspace = true, features = ["multipart", "ws"] }
+base64 = { workspace = true }
+clap = { workspace = true }
+futures = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true, features = ["std"] }
+tokio = { workspace = true }
+tower-http = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+reqwest = { workspace = true }
+tokio-tungstenite = "0.29"
+
+[[test]]
+name = "api_llm"
+required-features = ["llm"]
+
+[[test]]
+name = "api_audio"
+required-features = ["audio"]
+
+[[test]]
+name = "api_images"
+required-features = ["image"]

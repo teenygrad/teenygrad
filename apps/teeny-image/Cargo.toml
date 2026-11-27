@@ -1,0 +1,20 @@
+[package]
+name = "teeny-image"
+version.workspace = true
+edition.workspace = true
+description = "Image generation API for teenygrad: the ImageModel trait for generations, edits and variations, with PNG decoding and encoding, served by teeny-api."
+repository.workspace = true
+license.workspace = true
+homepage.workspace = true
+readme = "README.md"
+documentation = "https://docs.teenygrad.org/api/teenygrad/teeny_image/"
+keywords = ["image", "diffusion", "generation", "inference", "teenygrad"]
+categories = ["science", "multimedia::images"]
+
+[dependencies]
+futures = { workspace = true }
+image = { workspace = true }
+thiserror = { workspace = true, features = ["std"] }
+
+[dev-dependencies]
+tokio = { workspace = true }

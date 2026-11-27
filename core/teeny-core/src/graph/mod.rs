@@ -1880,7 +1880,9 @@ pub struct GraphNode {
 pub struct Graph {
     /// The graph's nodes, in the order they were recorded.
     pub nodes: Vec<GraphNode>,
-    /// Node index → dotted name captured from [`crate::name_scope`] at recording time.
+    /// Node index → name, for the nodes something named: the ONNX importer (its node and
+    /// initializer names), a model's graph builder ([`SymTensor::named`](tensor::SymTensor::named)),
+    /// and passes that carry names over. Weight loading matches parameters by these names.
     pub names: BTreeMap<usize, String>,
 }
 
@@ -1905,10 +1907,6 @@ impl Graph {
             dtype,
             shape,
         });
-        #[cfg(feature = "std")]
-        if let Some(name) = crate::name_scope::current_scope() {
-            self.names.insert(id, name);
-        }
         id
     }
 

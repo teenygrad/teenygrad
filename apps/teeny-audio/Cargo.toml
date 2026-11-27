@@ -1,0 +1,19 @@
+[package]
+name = "teeny-audio"
+version.workspace = true
+edition.workspace = true
+description = "Audio inference APIs for teenygrad: speech-to-text and text-to-speech model traits, and WAV/PCM decoding and encoding, served by teeny-api."
+repository.workspace = true
+license.workspace = true
+homepage.workspace = true
+readme = "README.md"
+documentation = "https://docs.teenygrad.org/api/teenygrad/teeny_audio/"
+keywords = ["audio", "speech", "transcription", "inference", "teenygrad"]
+categories = ["science", "multimedia::audio"]
+
+[dependencies]
+futures = { workspace = true }
+thiserror = { workspace = true, features = ["std"] }
+
+[dev-dependencies]
+tokio = { workspace = true }

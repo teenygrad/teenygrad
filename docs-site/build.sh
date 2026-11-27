@@ -36,6 +36,8 @@ if ! command -v nvcc >/dev/null 2>&1; then
 fi
 
 # shellcheck disable=SC2086
+# teeny-webapp's build script builds its UI with npm; API docs don't need the UI.
+export TEENY_WEBAPP_UI=skip
 cargo doc --workspace --no-deps $doc_excludes
 
 cp -r target/doc/. "$dist/api/"

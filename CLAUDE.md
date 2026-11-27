@@ -20,8 +20,8 @@ cargo build -p teeny-core
 cargo build -p teeny-compiler
 cargo build -p teeny-torch
 
-# Build with compiler features (egg + z3 optimization)
-cargo build -p teeny-core --features compiler
+# Build a model into teeny-llm/teeny-api (a model feature plus a backend)
+cargo build -p teeny-api --features functiongemma3,cuda
 ```
 
 ## Testing
@@ -71,10 +71,12 @@ The codebase is organized as a Cargo workspace with resolver "3":
 - **drivers/** - Hardware backends: teeny-cpu, teeny-cuda, teeny-vulkan
 - **torch/teeny-torch** - PyO3 Python bindings for PyTorch interoperability
 - **models/** - teeny-hf (Hugging Face integration), teeny-samples
-- **apps/teeny-llm** - LLM inference application (binaries: tllm, tllm-agent, tllm-console)
+- **apps/** - Inference serving: teeny-llm (LLM models and API traits), teeny-audio (audio API traits, WAV/PCM codec), teeny-image (image API trait, PNG codec), teeny-api (OpenAI-compatible HTTP API, `teeny-api` bin, a feature per domain), teeny-webapp (browser UI binary; its build.rs runs npm in `ui/`, `TEENY_WEBAPP_UI=skip` builds without Node)
+- **testing/** - teeny-test (kernel/model test harness), teeny-bench (llama-bench-style model benchmarks: `pp`/`tg` tests, in-process or via teeny-api's `timings`)
 - **utilities/** - Helper crates: teeny-cli (AOT compilation helpers), teeny-data (dataset/safetensors loading), teeny-quant (model quantization)
 - **macros/teeny-macros** - Procedural macros (Edition 2021 for macro crate compatibility)
 - **support/teeny-onnx** - ONNX model format support
+- **support/teeny-kvcache** - Pluggable KV caches for the LLMs: the `KvCache` trait, `HostKvCache`, and `PrefixCache` (prefix reuse across turns); the cache owns the `PastLen` attention ops read
 
 ### Compilation Flow
 
@@ -86,14 +88,16 @@ FXGraph (traced computation) → Compiler → Backends (LLVM/ndarray/Triton)
 
 ### Key Feature Flags
 
-- `teeny-core` has `compiler` feature enabling egg + z3 optimizer
-- `teeny-compiler` has `cpu` and `cuda` backend features
+- `teeny-core`: `std` (off by default, so the crate is `no_std`) and `training` (on by default)
+- `teeny-compiler`: `ndarray` (on by default); its egg e-graph optimizer is always built
+- `teeny-kernels` and `teeny-runtime`: a backend, `cuda` (default) or `riscv` (`qemu` runs RISC-V under QEMU); `teeny-kernels` also has `hardware`, for tests that run kernels on a device
+- `teeny-llm`, `teeny-api` and `teeny-bench`: a feature per model (`functiongemma3`) plus a backend; `teeny-api` also has a feature per domain (`llm` by default, `audio`, `image`)
 - Multiple crates have optional `ndarray` support
 
 ### Dependencies
 
-- **Async**: tokio (full features), smol
-- **Compiler**: egg (e-graph optimization), z3 (SMT solver, path-based at `../z3.rs/z3`)
+- **Async**: tokio (full features)
+- **Compiler**: egg (e-graph optimization, in teeny-compiler, teeny-fxgraph and teeny-torch)
 - **Python**: pyo3 with extension-module
 - **Serialization**: safetensors, flatbuffers, protobuf
 - **NLP**: tokenizers

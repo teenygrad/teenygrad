@@ -37,6 +37,14 @@ jobs:
         with:
           components: clippy, rustfmt
 
+      # teeny-webapp's build script builds its Vue UI with npm.
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/teeny-webapp/ui/package-lock.json
+
       - name: Cache cargo registry and build artifacts
         uses: Swatinem/rust-cache@v2
         with:
@@ -97,6 +105,7 @@ jobs:
           cargo test --workspace
           --exclude teeny-cuda
           --exclude teeny-kernels
+          --exclude teeny-llm
           --exclude teeny-torch
           --exclude teeny-triton --exclude teeny-vision
 
@@ -105,6 +114,45 @@ jobs:
 
       - name: Test teeny-kernels (riscv)
         run: cargo test -p teeny-kernels --no-default-features --features riscv,training
+
+      # teeny-llm defaults to FunctionGemma on CUDA, so its test binaries link libcuda,
+      # which this driverless runner lacks: it is excluded from the workspace Test step and
+      # tested here with riscv instead. There the kernel tests (cuda or qemu only) compile out,
+      # and the model tests need the gated weights and are ignored. Clippy covers both
+      # backends with every target.
+      - name: Clippy teeny-llm models (cuda, riscv)
+        run: |
+          cargo clippy -p teeny-llm --all-targets -- -D warnings
+          cargo clippy -p teeny-llm --all-targets --no-default-features --features functiongemma3,riscv -- -D warnings
+          cargo clippy -p teeny-api --all-targets --features functiongemma3,cuda,audio,image -- -D warnings
+          cargo clippy -p teeny-api --all-targets --features functiongemma3,riscv -- -D warnings
+
+      # teeny-api's domains are features (llm by default, audio, image): the workspace Test
+      # step covers the default, and this the rest, with and without each.
+      - name: Clippy and test teeny-api domains
+        run: |
+          cargo clippy -p teeny-api --all-targets --no-default-features -- -D warnings
+          cargo clippy -p teeny-api --all-targets --no-default-features --features audio -- -D warnings
+          cargo clippy -p teeny-api --all-targets --no-default-features --features image -- -D warnings
+          cargo test -p teeny-api --features audio,image
+
+      - name: Clippy and test teeny-bench
+        run: |
+          cargo clippy -p teeny-bench --all-targets -- -D warnings
+          cargo clippy -p teeny-bench --all-targets --features functiongemma3,cuda -- -D warnings
+          cargo test -p teeny-bench
+
+      - name: Check the teeny-webapp UI
+        working-directory: apps/teeny-webapp/ui
+        run: |
+          npm ci --no-audit --no-fund
+          npm run type-check
+          npm run lint:check
+          npm run format:check
+          npm test
+
+      - name: Test teeny-llm (riscv)
+        run: cargo test -p teeny-llm --no-default-features --features functiongemma3,riscv
 
       - name: Check formatting
         run: cargo fmt --all -- --check

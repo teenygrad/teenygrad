@@ -12,4 +12,5 @@ config setting). `setup_ubuntu.sh` does this for you.
 
 - `pre-push` — runs the same `cargo clippy -- -D warnings` check as CI's
   "Build, test, clippy" job, so a lint regression is caught locally before
-  it fails the pipeline.
+  it fails the pipeline. Pushes that only update the orphan `beads` branch
+  (the issue tracker, see `AGENTS.md`) skip clippy, since they carry no code.

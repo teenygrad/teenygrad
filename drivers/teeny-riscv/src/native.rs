@@ -300,25 +300,61 @@ mod launcher {
         .map_err(|e| anyhow!(e))
     }
 
-    /// The number of threads a launch spreads its program ids over: `TEENY_RISCV_THREADS`, or
-    /// every available core.
-    fn threads() -> usize {
-        static THREADS: OnceLock<usize> = OnceLock::new();
-        *THREADS.get_or_init(|| {
-            std::env::var("TEENY_RISCV_THREADS")
-                .ok()
-                .and_then(|v| v.parse().ok())
+    /// The threads launches spread their program ids over, created once:
+    /// `TEENY_RISCV_THREADS` of them (default: every core the process may use). The last
+    /// `TEENY_RISCV_AI_THREADS` (default 0) move to the SpacemiT K3's A100 "AI" cores at
+    /// startup, so one process can use both core types: on a K3, 16 and 8 put threads on
+    /// all 16 cores.
+    fn pool() -> &'static rayon::ThreadPool {
+        static POOL: OnceLock<rayon::ThreadPool> = OnceLock::new();
+        POOL.get_or_init(|| {
+            let env = |name: &str| {
+                std::env::var(name)
+                    .ok()
+                    .and_then(|v| v.parse::<usize>().ok())
+            };
+            let threads = env("TEENY_RISCV_THREADS")
                 .or_else(|| std::thread::available_parallelism().ok().map(Into::into))
                 .unwrap_or(1)
-                .max(1)
+                .max(1);
+            let ai = env("TEENY_RISCV_AI_THREADS").unwrap_or(0).min(threads);
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(threads)
+                .thread_name(|i| format!("teeny-riscv-{i}"))
+                .start_handler(move |i| {
+                    if i >= threads - ai {
+                        move_to_ai_cores();
+                    }
+                })
+                .build()
+                .expect("creating the RISC-V launcher's thread pool")
         })
+    }
+
+    /// Moves the calling thread to the K3's A100 cores, through SpacemiT's
+    /// `/proc/set_ai_thread` (which takes a thread id). Warns once and stays put where
+    /// that is missing.
+    fn move_to_ai_cores() {
+        static WARNED: std::sync::Once = std::sync::Once::new();
+        let tid = std::fs::read_link("/proc/thread-self")
+            .ok()
+            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()));
+        let moved = tid.map(|tid| std::fs::write("/proc/set_ai_thread", tid));
+        if !matches!(moved, Some(Ok(()))) {
+            WARNED.call_once(|| {
+                eprintln!(
+                    "TEENY_RISCV_AI_THREADS: could not move a thread to the AI cores \
+                     (/proc/set_ai_thread: {moved:?}); it runs where it is"
+                );
+            });
+        }
     }
 
     /// Runs the kernel `entry_point` from `library` once for every program id in `grid`, with
     /// `args`, in this process.
     ///
-    /// Program ids are independent (as on a GPU), so they run in parallel on [`threads`]
-    /// threads. Every pointer in `args` addresses host memory the kernel reads and writes
+    /// Program ids are independent (as on a GPU), so they run in parallel on the
+    /// [`pool`]'s threads. Every pointer in `args` addresses host memory the kernel reads and writes
     /// directly.
     pub(crate) fn launch<A: KernelArgs>(
         libraries: &Libraries,
@@ -343,7 +379,8 @@ mod launcher {
 
         let [gx, gy, gz] = grid.map(u64::from);
         let total = gx * gy * gz;
-        let threads = (threads() as u64).min(total).max(1);
+        let pool = pool();
+        let threads = (pool.current_num_threads() as u64).min(total).max(1);
         let next = AtomicU64::new(0);
         let run = || {
             let mut frame = frame.clone();
@@ -365,11 +402,9 @@ mod launcher {
         if threads == 1 {
             run();
         } else {
-            std::thread::scope(|scope| {
-                for _ in 0..threads {
-                    scope.spawn(run);
-                }
-            });
+            // Every pool thread pulls chunks until none are left, so slower threads (A100
+            // cores next to X100 ones) simply take fewer.
+            pool.broadcast(|_| run());
         }
         Ok(())
     }
