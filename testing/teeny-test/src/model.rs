@@ -857,6 +857,22 @@ impl<'a> RuntimeModel<'a> {
         Ok(())
     }
 
+    /// A parameter's storage as writable host memory, when the backend keeps
+    /// buffers in host memory ([`teeny_runtime::host_slice`]): a loader can then fill
+    /// it in place, from any thread, instead of handing values to
+    /// [`Self::load_param_f32`].
+    pub fn param_host_slice(&mut self, node_idx: usize, param_idx: usize) -> Result<Option<&mut [f32]>> {
+        let op = self.nodes[node_idx]
+            .op
+            .as_mut()
+            .ok_or_else(|| anyhow!("node {node_idx} is an Input placeholder"))?;
+        let buf = op
+            .params
+            .get_mut(param_idx)
+            .ok_or_else(|| anyhow!("node {node_idx} has no param at index {param_idx}"))?;
+        Ok(teeny_runtime::host_slice(buf))
+    }
+
     /// The recorded dotted name of node `idx`, if any.
     pub fn node_name(&self, idx: usize) -> Option<&str> {
         self.names.get(&idx).map(String::as_str)

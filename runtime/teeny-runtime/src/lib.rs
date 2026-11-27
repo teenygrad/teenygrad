@@ -46,6 +46,11 @@ mod backend {
     pub type Device<'a> = teeny_cuda::device::CudaDevice<'a>;
     /// The compiled-in backend's [`teeny_core::device::buffer::Buffer`] type.
     pub type Buffer<'a, N> = teeny_cuda::device::buffer::CudaBuffer<'a, N>;
+
+    /// A buffer's storage as host memory, which a CUDA buffer is not.
+    pub fn host_slice<'b, N: teeny_core::dtype::Num>(_buf: &'b mut Buffer<'_, N>) -> Option<&'b mut [N]> {
+        None
+    }
     /// The compiled-in backend's [`teeny_core::device::LaunchConfig`] type.
     pub type LaunchConfig = teeny_cuda::device::CudaLaunchConfig;
     /// The compiled-in backend's [`teeny_core::compiler::Target`] type.
@@ -165,6 +170,14 @@ mod backend {
     pub type Device<'a> = teeny_riscv::device::RiscvDevice<'a>;
     /// The compiled-in backend's [`teeny_core::device::buffer::Buffer`] type.
     pub type Buffer<'a, N> = teeny_riscv::device::buffer::RiscvBuffer<'a, N>;
+
+    /// A buffer's storage as host memory the caller can write: a RISC-V buffer is
+    /// host memory whether the kernels run natively or under qemu.
+    pub fn host_slice<'b, N: teeny_core::dtype::Num>(buf: &'b mut Buffer<'_, N>) -> Option<&'b mut [N]> {
+        // Safety: the buffer owns `count()` contiguous elements at this pointer, and
+        // the exclusive borrow of `buf` keeps anything else from touching them.
+        Some(unsafe { std::slice::from_raw_parts_mut(buf.as_device_ptr(), buf.count()) })
+    }
     /// The compiled-in backend's [`teeny_core::device::LaunchConfig`] type.
     pub type LaunchConfig = teeny_riscv::device::RiscvLaunchConfig;
     /// The compiled-in backend's [`teeny_core::compiler::Target`] type.
@@ -253,7 +266,7 @@ mod backend {
 pub use backend::{
     BACKEND_NAME, Buffer, Context, Device, HOST_MEMORY, LaunchConfig, Program, Target,
     compile_kernel,
-    default_target, launch_config, launch_config_custom, launch_config_grid,
+    default_target, host_slice, launch_config, launch_config_custom, launch_config_grid,
     launch_config_with_grid, load_program, reference_target,
 };
 
