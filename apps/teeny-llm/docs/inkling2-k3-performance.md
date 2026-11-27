@@ -1,19 +1,25 @@
-# Inkling-2-Mini on the SpacemiT K3: from 0.33 to 2.3 tokens/s
+# Inkling-2-Mini on the SpacemiT K3: from 0.33 to 3.3 tokens/s
 
-How `teeny_llm::models::inkling2` went from 0.33 to 2.3 tokens/s generating, and
-from 0.31 to 5.1 tokens/s reading a prompt, on a SpacemiT K3 board (`jupiter2`:
-8 X100 cores at VLEN=256, 31 GB). Every step was measured on the board, and every
-one kept greedy output identical to the step before, except the one that changed the
-arithmetic on purpose (int8 activations, below).
+How `teeny_llm::models::inkling2` went from 0.33 to 3.3 tokens/s generating, from
+0.31 to 6.0 tokens/s reading a prompt, and from a 66 s to a 12 s load, on a SpacemiT K3
+board (`jupiter2`: 8 X100 cores at VLEN=256 and 8 A100 "AI" cores at VLEN=1024, 32 GB).
+Every step was measured on the board, and every step kept greedy output identical to
+the build before it, except where a step changed the arithmetic on purpose; those
+cases are called out below.
+
+The work came in two rounds. [Round 1](#the-steps) took generation from 0.33 to 2.3
+tokens/s. [Round 2](#round-2-decode-loading-and-the-k3s-two-clusters) took it to 3.3,
+cut loading to 12 s, and measured what the K3's second cluster and speculative decoding
+can and cannot add.
 
 ## Where it ended up
 
-| | Start (`ec517604d`) | Now (`4d6c10a7e`) |
-|---|---|---|
-| Generation | 0.33 tokens/s | **2.30 tokens/s** (7.0x) |
-| Prompt | 0.31 tokens/s | **5.1 tokens/s** (16.5x) |
-| Load (converted checkpoint) | 66 s | 67 s |
-| llama.cpp, same board, same model | 0.42 tokens/s | |
+| | Start (`ec517604d`) | Round 1 (`4d6c10a7e`) | Now (`24a7656a8`) |
+|---|---|---|---|
+| Generation | 0.33 tokens/s | 2.30 tokens/s | **3.2-3.3 tokens/s** (10x) |
+| Prompt | 0.31 tokens/s | 5.1 tokens/s | **5.7-6.0 tokens/s** (19x) |
+| Load (converted checkpoint) | 66 s | 67 s | **11-13 s** |
+| llama.cpp, same board, same model | 0.42 tokens/s | | |
 
 ### How the numbers were taken
 
@@ -180,16 +186,154 @@ it took:
 
 Chunk 1 and chunk 16 give identical output on both test prompts.
 
+## Round 2: decode, loading and the K3's two clusters
+
+| Step | Commit | Generation | Prompt | Load |
+|---|---|---|---|---|
+| round 1 | `4d6c10a7e` | 2.30 | 5.10 | 67 s |
+| activation buffer pool kept across runs | `ad37a3c31` | 2.37 | | |
+| loop controllers fused into two kernels each | `b84d22942` | 2.40-2.45 | | |
+| bf16 linears with output features as lanes | `87b9d50dc` | 2.35-2.40 | 5.7-5.8 | |
+| int8 attention linears and unembedding | `1c30d45a4` | 2.73-2.79 | 5.8-5.9 | 77-81 s |
+| int8 stored in the converted checkpoint | `20e55bc16` | 2.80 | | 60 s |
+| parallel, zero-copy parameter loading | `3fd9fce55` | 2.73-2.75 | | 26 s |
+| kernel programs loaded once per thread | `523cbb478` | | | 27 s (disk-bound) |
+| NVFP4 scales as E4M3 bytes; bf16 embedding | `5d079c6a2` | 2.98-3.01 | | 11-13 s |
+| 32-lane int8 linears; 1024-token context | `9dca8b8ce` | 3.21-3.32 | 5.7-6.0 | |
+| A100 matrix-engine linears, opt-in (`INKLING2_IME=1`) | `ca97c166b` | 3.20 | 6.5-6.9 | |
+| key/value norms and relative bias fused | `24a7656a8` | 3.18-3.29 | | |
+
+Each commit message carries its measurement. Prompt speed is with 16-token steps.
+
+### 8. Fewer bytes per token
+
+Decode reads every weight once per token, so its speed is bytes over bandwidth.
+- **The attention projections and unembedding are int8.** Each output row is
+  quantised symmetrically, with one scale per row (`LinearLanesI8Op`). That halves
+  3.5 GB a token, the largest single read, to about 1.75 GB. Two prompts give identical
+  text; the third rewords its reasoning and stays correct.
+  `INKLING2_BF16_LINEARS=1` restores the exact bf16 weights.
+- **NVFP4 expert scales are E4M3 bytes.** They had been folded to one f32 per 16
+  weights, a third of every NVFP4 expert's bytes. The kernel now decodes the byte by
+  bit construction, times one scale per expert.
+- **The token embedding is bf16**, its checkpoint dtype, instead of f32.
+- **Output features are the lanes** (`LinearLanesBf16Op`, then int8). A weight word is
+  unpacked once and feeds up to four rows, with no horizontal sum. At 32 lanes the int8
+  kernel spends half the instructions per byte that 16 lanes did, which gained 10% on
+  decode.
+
+### 9. Loading: 67 s to 12 s
+
+`INKLING2_LOAD_TIMING=1` prints where the time goes.
+- **The first version was one thread.** It decoded each tensor from the mapped
+  checkpoint into a fresh vector at about 0.5 GB/s, then copied it into its buffer.
+- **Now six loader threads read while the main thread compiles.**
+  - Tensors stored as-is are borrowed from the mapping, not decoded.
+  - Where the backend's buffers are host memory, the loader threads write straight
+    into them.
+  - Buffers are allocated zeroed by the allocator instead of written a zero at a
+    time, which used to touch 22 GB first.
+  - Each kernel program loads once per process, not once per layer.
+- **The checkpoint gains compact tensors in place.**
+  `inkling2_convert --model <converted> --add-int8` and
+  `inkling2_convert --model <original> --add-compact <converted>` add extra shards:
+  int8 linears, E4M3 scale bytes and a bf16 embedding. Existing tensors are untouched,
+  so older builds still load it. With fewer bytes read, the load fits in page cache
+  beside the 22 GB of parameters, and a repeated load no longer reads the SSD.
+- Removing the superseded f32 tensors would save about 9 GB of disk, but older builds
+  could then no longer load the checkpoint. Not done.
+
+### 10. The K3's A100 cluster
+
+The K3's second cluster has 8 A100 cores at VLEN 1024 with SpacemiT's matrix extension
+(IME2: `smt.vmadot`, int4 and int8 tiles accumulating int32). A process reaches it
+through `/proc/set_ai_thread`, not `taskset`. Measured on this board:
+
+| | Read bandwidth | Note |
+|---|---|---|
+| X100 cluster, 8 threads | 17.8 GB/s | |
+| A100 cluster, 6-8 threads | 21.8-23.5 GB/s | |
+| Both clusters at once | 25.7 GB/s total | one shared memory path |
+| Our kernels moved to the A100s | 0.85 tokens/s | ordinary vector code runs ~4x slower there |
+| int8 matrix-vector through `smt.vmadot` (prototype) | 22.4 GB/s at 8 threads | about 3.5 GB/s per core below that |
+
+A first run of the prototype gave 29 GB/s at 4 threads and never reproduced. Huge pages,
+alignment, clocks and other load were all ruled out; every later run scales about
+linearly to about 22 GB/s at 8 threads.
+
+- **What went in (`ca97c166b`, opt-in, `INKLING2_IME=1`).**
+  - A `RuntimeOp` can launch a prebuilt native library (`RuntimeOp::native_library`).
+    `build.rs` cross-compiles `native/*.c` and the crate embeds the libraries.
+  - `teeny-riscv` sends `*_a100_entry_point` kernels to a pool on the A100 cores, and
+    the launching X100 thread only waits.
+  - The int8 linears run on the matrix engine, with activations quantised per token.
+    Up to 8 tokens share a tile, so prompts got 15% faster.
+  - Decode only broke even, 3.20 against 3.15 tokens/s. Inside the model it streams at
+    about 19.7 GB/s, and each launch costs about 8 us more than it would on the X100s.
+- **The experts on the matrix engine don't pay.** NVFP4 has a scale per 16 weights,
+  so every matrix op needs its result read out, converted and scaled. The best
+  prototype reached 9.7 GB/s, against 13.5 GB/s for the X100 kernel. Only
+  re-quantising the experts to the engine's int4 with block scales could change that,
+  and that changes the model's numbers.
+- **Overlapping the two clusters has a 9% ceiling.** `INKLING2_DUMP_DAG` and
+  `scripts/inkling2-overlap-sim.py` list-schedule the real layer DAGs with measured
+  per-node times. Of 312 ms of layer kernels a token, the X100 side alone is 240 ms,
+  so overlap could save at most 30 ms. Shared memory bandwidth would take part of that.
+
+### 11. What SGLang and vLLM fuse
+
+Both serve Inkling-2 on GPUs. Their attention inputs run as one "prologue" kernel: the
+k/v convolutions with their norms, the q, k and rel clips, the rel-bias projection and
+the KV write. Our runtime gives an op one output, so `24a7656a8` fuses what fits that
+limit:
+- the key and value convolutions now end in their L2 clip and RMS norm (`sconv::Post`);
+- the relative bias's clip, projection and gather run in one kernel (`RelBiasFusedOp`).
+
+That's about 240 launches a token fewer, but no measured decode gain. The per-op profile
+that would show why did not finish.
+
+Their other fusions are candidates for the remaining small-op time:
+- multi-query attention residuals, with query scaling at load;
+- attention plus output gate plus sink in one kernel;
+- the MoE tail: router with top-k and renormalisation, then combine with the MLP
+  convolution and residual add.
+
+The study estimated about 30 ms a token across all of them.
+
+### 12. Speculative decoding (DSpark)
+
+`mtp.safetensors` is a 3-layer DSpark drafter. It predicts blocks of 8 tokens from four
+target features with a low-rank Markov head.
+- **The engine can verify and roll back.** `Engine::keep_undo` and `truncate` roll a
+  step back, and `step_many_logits` returns logits for every row. `--rewind-check`
+  generates the same text as plain decoding.
+- **The drafter works in a reference.** `scripts/inkling2-dspark-ref.py` is a PyTorch
+  drafter replayed against the engine's own traces (`INKLING2_TRACE`). It accepts 1.6 of
+  7 drafted tokens per step, using the target's visit *inputs* as features.
+- **On this board it breaks even at best.** Each extra token in a verify step cost
+  0.14 s against 0.43 s for one token, because each token routes to different experts.
+  The drafter itself reads roughly 1 GB per draft, an estimate.
+- The drafter is not ported. The step costs on the current, faster build were not
+  re-measured before the board became unreachable.
+
 ## Where the time goes now
 
-A generated token is about 430 ms:
+A generated token is about 310 ms of kernel time, about 2,900 launches:
 
 | | ms | |
 |---|---|---|
-| bf16 linears (attention projections, unembedding) | ~165 | at memory bandwidth |
-| experts (NVFP4 and MXFP8) | ~146 | partly bandwidth, partly `vrgather` |
-| ~3,400 small ops | ~100 | launch-bound |
-| the rest | ~20 | |
+| experts (NVFP4 and MXFP8) | ~140 | bandwidth, about 13.5 GB/s |
+| int8 attention linears | ~65 | bandwidth, about 15-17 GB/s |
+| unembedding (int8) | ~21 | |
+| ~2,200 small ops | ~80 | launch- and latency-bound |
+
+Each token streams about 3.6 GB of weights. On the X100 cluster's 17.8 GB/s that is a
+floor of about 200 ms, or about 5 tokens/s with no other cost at all. The loop drives
+the byte count: layers 6-17 run three times a token, so 36 of the 48 layer executions
+re-read weights the same token already read. Only three things move that floor:
+- fewer bytes per weight;
+- more tokens per weight read (speculative decoding, which MoE routing weakens here);
+- more bandwidth (the A100 cluster, which only matrix-engine kernels can use).
 
 ## The compiler side (teeny-rustc)
 
@@ -216,13 +360,34 @@ tensors, for the byte-lane kernels.
 - `TEENY_RUNTIME_PROFILE=<file>`: per-node-name time across all models, written as a TSV
   when a model is dropped. `TEENY_RUNTIME_TRACE` prints every node.
 - `INKLING2_DUMP_SHAPES=<file>`: every compiled node's concrete shape.
-- `--prompt-chunk N` on the chat.
+- `--prompt-chunk N` on the chat; `--max-tokens` is optional (a reply runs to the
+  model's end token), and `--context` defaults to 1024, the sliding window.
+- `INKLING2_LOAD_TIMING=1`: per-graph compile, read and copy time at load.
+- `INKLING2_TRACE=<file>`: every layer execution's output, plus the step's token ids
+  and block states, for replaying the drafter.
+- `INKLING2_DUMP_DAG=<file>` and `scripts/inkling2-overlap-sim.py`: the layer DAGs,
+  and a two-cluster schedule simulation over them.
+- `--rewind-check`: generation through step, rollback and per-row logits.
+- `inkling2_convert --add-int8` / `--add-compact`: compact shards added in place.
 - On the board, `perf record` attributes samples to the kernel `.so` files in the kernel
   cache, which is how the MXFP8 layers and llama.cpp's hotspots were found.
 
 ## Testing
 
-57 kernel tests pass under qemu (VLEN 256), including:
+63 kernel tests pass under qemu (VLEN 256). Round 2 added tests for:
+- the lanes linears (bf16 and int8) at 1 to 7 rows;
+- int8 against its dequantised weights;
+- NVFP4 with E4M3 scale bytes, subnormals included;
+- the bf16 embedding, exactly;
+- the fused key/value norms (static and dynamic convolutions);
+- the fused relative bias against a host reference;
+- a `SpinPool` mode that never runs a job on the caller;
+- IME weight packing.
+
+The matrix-engine kernels need A100 hardware, which qemu does not emulate; they were
+checked on the board against a scalar reference.
+
+Round 1's tests include:
 
 - the int8 projection against an exact host integer reference, and against the f32
   gather within the bound the activation rounding allows;
@@ -239,13 +404,14 @@ without it.
 
 ## Not done
 
-- **Logit-level check of the int8 activations** against the f32 build, beyond greedy text.
-- **Speculative decoding.** `mtp.safetensors` is a 3-layer **DSpark** draft model (block
-  of 8, context projections onto 4 fused target layers, a low-rank Markov output head),
-  implemented in SGLang and vLLM but not in `transformers`. Verifying a draft is a
-  `step_many`, so the batching above is the groundwork; rejecting tokens also needs the
-  KV cache and convolution windows to roll back, which the engine cannot do yet.
-  Expected gain, unmeasured: 1.3-1.7x on generation.
-- **Fusing the small ops** (~100 ms a token, launch-bound).
-- **Q8 linear weights** would halve the linears' bytes again, at a small accuracy cost.
-- **IME** (`vmadot`) is unused.
+- **A logit-level check** of the int8 activations and int8 linears against the f32
+  build, beyond greedy text.
+- **Why the attention fusion did not speed decode up.** Its per-op profile did not
+  finish.
+- **DSpark port:** re-measure verify step costs on the current build, then port the
+  drafter if the estimate beats plain decoding.
+- **More fusions from SGLang** (above), about 30 ms a token in all.
+- **Experts on the A100 matrix engine** would need re-quantising them to int4 with block
+  scales, which needs a quality check first.
+- **Pruning the superseded f32 tensors** from the converted checkpoint (about 9 GB of
+  disk).
