@@ -252,6 +252,9 @@ struct BufferPool<'a> {
     allocated_words: usize,
     live_words: usize,
     peak_words: usize,
+    /// Zeros to clear an acquired buffer from, grown to the largest request, so a
+    /// clear copies rather than allocating a vector of zeros every time.
+    zeros: Vec<f32>,
 }
 
 /// What a run cost in buffers.
@@ -305,15 +308,32 @@ impl<'a> BufferPool<'a> {
             self.reused += 1;
             self.live_words += capacity;
             self.peak_words = self.peak_words.max(self.live_words);
-            buf.to_device(&vec![0.0f32; words])?;
+            buf.to_device(self.zeros(words))?;
             return Ok((buf, capacity));
         }
         self.allocated_words += words;
         self.live_words += words;
         self.peak_words = self.peak_words.max(self.live_words);
         let mut buf = device.buffer::<f32>(words)?;
-        buf.to_device(&vec![0.0f32; words])?;
+        buf.to_device(self.zeros(words))?;
         Ok((buf, words))
+    }
+
+    /// `words` zeros, from the pool's own buffer of them.
+    fn zeros(&mut self, words: usize) -> &[f32] {
+        if self.zeros.len() < words {
+            self.zeros.resize(words, 0.0);
+        }
+        &self.zeros[..words]
+    }
+
+    /// Starts a run's accounting afresh, keeping the free buffers and the zeros.
+    fn begin_run(&mut self) {
+        self.acquired = 0;
+        self.reused = 0;
+        self.allocated_words = 0;
+        self.live_words = 0;
+        self.peak_words = 0;
     }
 
     /// Takes a buffer back, filed under the capacity `acquire` reported for it.
@@ -408,6 +428,9 @@ pub struct RuntimeModel<'a> {
     /// Inputs this run passes in place ([`Feed::Borrow`]): input node to the
     /// caller's memory, which the kernels read instead of the node's buffer.
     borrowed: HashMap<usize, RawPtr>,
+    /// Activation buffers, kept from one run to the next: a model step is dozens of
+    /// runs, and a pool per run allocated and freed every node's buffer every time.
+    pool: BufferPool<'a>,
     /// The row count the model was compiled for, which sized every buffer.
     max_rows: usize,
     /// The row count runs use now; see [`Self::set_rows`].
@@ -583,6 +606,7 @@ impl<'a> RuntimeModel<'a> {
             profile: std::env::var_os("TEENY_RUNTIME_PROFILE").is_some(),
             buffers: BufferStats::default(),
             borrowed: HashMap::new(),
+            pool: BufferPool::default(),
             max_rows: batch_size,
             rows: batch_size,
             graph: graph.clone(),
@@ -1002,7 +1026,18 @@ fn profile_add(name: &str, elapsed: std::time::Duration) {
         // Anything the caller asks for is kept, whatever reads it; everything else goes
         // back in the pool once the last node that reads it has run.
         let pinned: BTreeSet<usize> = outputs.iter().copied().collect();
-        let mut pool = BufferPool::default();
+        let mut pool = std::mem::take(&mut self.pool);
+        pool.begin_run();
+        // What the last run kept for its caller goes back first: its outputs were read
+        // when it returned, and this run hands out buffers afresh.
+        for idx in 0..self.nodes.len() {
+            if self.nodes[idx].op.is_some()
+                && let Some(buffer) = self.nodes[idx].output.take()
+            {
+                let capacity = self.nodes[idx].capacity;
+                pool.release(capacity, buffer);
+            }
+        }
 
         let total = self.topo.len();
         for step in 0..total {
@@ -1054,6 +1089,7 @@ fn profile_add(name: &str, elapsed: std::time::Duration) {
         }
 
         self.buffers = pool.stats();
+        self.pool = pool;
         if self.trace {
             eprintln!(
                 "buffers: {} handed out, {} reused, {:.2} MiB allocated, {:.2} MiB peak",
