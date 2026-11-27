@@ -14,10 +14,11 @@
  * limitations under the License.
  */
 
+use base64::Engine as _;
+use base64::prelude::BASE64_STANDARD;
 use serde::{Deserialize, Serialize};
 use teeny_llm::embedding::{EmbeddingInput, EmbeddingRequest};
 
-use super::base64;
 use super::error::ApiError;
 
 /// `input`: a string, strings, token ids, or arrays of token ids.
@@ -96,7 +97,7 @@ impl EmbeddingVector {
             EncodingFormat::Float => Self::Float(vector),
             EncodingFormat::Base64 => {
                 let bytes: Vec<u8> = vector.iter().flat_map(|x| x.to_le_bytes()).collect();
-                Self::Base64(base64::encode(&bytes))
+                Self::Base64(BASE64_STANDARD.encode(&bytes))
             }
         }
     }

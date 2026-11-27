@@ -22,8 +22,6 @@
 
 #[cfg(feature = "audio")]
 pub mod audio;
-#[cfg(any(feature = "llm", feature = "audio", feature = "image"))]
-mod base64;
 #[cfg(feature = "llm")]
 pub mod chat;
 #[cfg(feature = "llm")]

@@ -17,13 +17,14 @@
 //! `/v1/images/generations` (JSON), `/edits` and `/variations` (multipart forms): the
 //! requests, `ImagesResponse`, and the streamed image events.
 
+use base64::Engine as _;
+use base64::prelude::BASE64_STANDARD;
 use serde::{Deserialize, Serialize};
 use teeny_image::{
     Background, ImageFormat, ImageQuality, ImageRequest, ImageStyle, ImageTask, ImageUsage,
     InputFidelity,
 };
 
-use super::base64;
 use super::error::ApiError;
 use super::form::FormPart;
 
@@ -343,7 +344,7 @@ impl ImagesResponse {
             data: images
                 .into_iter()
                 .map(|(bytes, revised_prompt)| ImageData {
-                    b64_json: base64::encode(&bytes),
+                    b64_json: BASE64_STANDARD.encode(&bytes),
                     revised_prompt,
                 })
                 .collect(),
@@ -383,7 +384,7 @@ impl ImageStreamEvent {
         };
         Self {
             kind: format!("{prefix}.{suffix}"),
-            b64_json: base64::encode(bytes),
+            b64_json: BASE64_STANDARD.encode(bytes),
             created_at,
             size: size_name(request),
             quality: request.quality.name(),

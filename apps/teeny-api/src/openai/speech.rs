@@ -16,11 +16,12 @@
 
 //! `/v1/audio/speech`: `CreateSpeechRequest` and the speech stream events.
 
+use base64::Engine as _;
+use base64::prelude::BASE64_STANDARD;
 use serde::{Deserialize, Serialize};
 use teeny_audio::codec::AudioEncoding;
 use teeny_audio::speech::{SpeechRequest, SpeechUsage};
 
-use super::base64;
 use super::error::ApiError;
 
 /// A voice: by name, or a custom voice by id.
@@ -117,7 +118,7 @@ impl AudioDeltaEvent {
     pub fn new(bytes: &[u8]) -> Self {
         Self {
             kind: "speech.audio.delta",
-            audio: base64::encode(bytes),
+            audio: BASE64_STANDARD.encode(bytes),
         }
     }
 }
