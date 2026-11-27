@@ -37,6 +37,7 @@ teeny-audio = { workspace = true, optional = true }
 teeny-image = { workspace = true, optional = true }
 anyhow = { workspace = true, features = ["std"] }
 axum = { workspace = true, features = ["multipart", "ws"] }
+base64 = { workspace = true }
 clap = { workspace = true }
 futures = { workspace = true }
 serde = { workspace = true }
