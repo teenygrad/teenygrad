@@ -2350,7 +2350,7 @@ fn test_lanes_linear_matches_the_f32_linear_at_any_row_count() {
 /// its quantisation produces, at every row count a tile can leave.
 #[test]
 fn test_int8_lanes_linear_matches_the_f32_linear_on_dequantised_weights() {
-    let (k, n) = (96usize, 48usize);
+    let (k, n) = (96usize, 64usize);
     let w = values(n * k, 621);
     let buf = quantize_lanes_i8(&w, n, k).expect("int8 quantise");
     // What the kernel should see: each weight rounded to its row's int8 grid.

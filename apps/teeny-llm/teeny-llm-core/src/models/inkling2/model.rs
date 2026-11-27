@@ -73,7 +73,7 @@ use super::kernels::{
     swiglu::SwigluOp,
 };
 use super::runner::Quant;
-use crate::kernels::linear::{LANES, Linear4Bf16Op, LinearLanesBf16Op, LinearLanesI8Op};
+use crate::kernels::linear::{I8_LANES, LANES, Linear4Bf16Op, LinearLanesBf16Op, LinearLanesI8Op};
 
 fn wrap(like: &SymTensor, node_id: usize, shape: Shape) -> SymTensor {
     SymTensor {
@@ -107,7 +107,7 @@ fn add(a: &SymTensor, b: &SymTensor) -> SymTensor {
 fn linear<D: FloatBytes + Send + Sync + 'static>(x: &SymTensor, k: usize, n: usize) -> SymTensor {
     // INKLING2_BF16_LINEARS keeps the exact bf16 weights, to compare against.
     let int8 = std::env::var_os("INKLING2_BF16_LINEARS").is_none();
-    if int8 && n.is_multiple_of(LANES) && k.is_multiple_of(4) {
+    if int8 && n.is_multiple_of(I8_LANES) && k.is_multiple_of(4) {
         x.record_custom(CustomData::new(LinearLanesI8Op::<D>::new(k, n)), &[], None)
     } else if n.is_multiple_of(LANES) {
         x.record_custom(CustomData::new(LinearLanesBf16Op::<D>::new(k, n)), &[], None)

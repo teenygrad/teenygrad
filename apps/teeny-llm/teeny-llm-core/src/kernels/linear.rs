@@ -887,6 +887,18 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for LinearLanesBf16Runtime
 // Int8 weights, output features as lanes
 // ---------------------------------------------------------------------------
 
+/// Output features per program of [`linear_lanes_i8_forward`]. Twice [`LANES`]: a
+/// step down `K` is then one 32-byte load, a widen and two multiply-adds per row for
+/// 32 outputs, where 16 lanes spent the same instructions on half the bytes and left
+/// the kernel short of memory bandwidth.
+pub const I8_LANES: usize = 32;
+
+/// The name a converted checkpoint stores a linear's int8 buffer under, beside its
+/// weight. The lane width is in the name because it is in the byte order.
+pub fn int8_name(weight: &str) -> String {
+    format!("{weight}.i8x{I8_LANES}")
+}
+
 /// [`linear_lanes_bf16_forward`] on int8 weights with one f32 scale per output.
 ///
 /// Decode reads every linear weight once per token and runs at memory bandwidth,
@@ -894,10 +906,10 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for LinearLanesBf16Runtime
 /// `q + 128` in a byte (`q` in -127..=127) and becomes `q` with a widen and a
 /// subtract; the row's scale multiplies the sum once at the end.
 ///
-/// The buffer is `[N / LANES][K][LANES]` bytes, then `N` f32 scales; `w_ptr` and
+/// The buffer is `[N / I8_LANES][K][I8_LANES]` bytes, then `N` f32 scales; `w_ptr` and
 /// `s_ptr` are the same buffer, read as bytes and as f32.
 ///
-/// Grid: `(N / LANES, ceil(M / ROW_TILE))`.
+/// Grid: `(N / I8_LANES, ceil(M / ROW_TILE))`.
 #[allow(clippy::multiple_bound_locations)]
 #[kernel]
 pub fn linear_lanes_i8_forward<T: Triton, D: Float, const LANES: i32>(
@@ -978,12 +990,12 @@ pub fn linear_lanes_i8_forward<T: Triton, D: Float, const LANES: i32>(
 
 /// Quantises a row-major `[n, k]` matrix to the buffer [`linear_lanes_i8_forward`]
 /// reads: symmetric int8 per output row (`scale = max |w| / 127`), stored as
-/// `q + 128` in the `[n / LANES][k][LANES]` byte order, four bytes to a word, then
+/// `q + 128` in the `[n / I8_LANES][k][I8_LANES]` byte order, four bytes to a word, then
 /// the `n` scales.
 pub fn quantize_lanes_i8(values: &[f32], n: usize, k: usize) -> Result<Vec<f32>, String> {
-    if n % LANES != 0 || k % 4 != 0 || values.len() != n * k {
+    if n % I8_LANES != 0 || k % 4 != 0 || values.len() != n * k {
         return Err(format!(
-            "int8 lanes: {} values are not {n} rows (a multiple of {LANES}) of {k} (a multiple of 4)",
+            "int8 lanes: {} values are not {n} rows (a multiple of {I8_LANES}) of {k} (a multiple of 4)",
             values.len()
         ));
     }
@@ -992,10 +1004,10 @@ pub fn quantize_lanes_i8(values: &[f32], n: usize, k: usize) -> Result<Vec<f32>,
     for (r, row) in values.chunks_exact(k).enumerate() {
         let max = row.iter().fold(0.0f32, |m, v| m.max(v.abs()));
         let scale = if max > 0.0 { max / 127.0 } else { 1.0 };
-        let (block, lane) = (r / LANES, r % LANES);
+        let (block, lane) = (r / I8_LANES, r % I8_LANES);
         for (c, &v) in row.iter().enumerate() {
             let q = (v / scale).round().clamp(-127.0, 127.0) as i32;
-            bytes[(block * k + c) * LANES + lane] = (q + 128) as u8;
+            bytes[(block * k + c) * I8_LANES + lane] = (q + 128) as u8;
         }
         scales.push(scale);
     }
@@ -1013,7 +1025,7 @@ pub fn quantize_lanes_i8(values: &[f32], n: usize, k: usize) -> Result<Vec<f32>,
 pub struct LinearLanesI8Op<D: FloatBytes + Send + Sync + 'static> {
     /// Input features `K` (a multiple of 4).
     pub k: usize,
-    /// Output features `N` (a multiple of [`LANES`]).
+    /// Output features `N` (a multiple of [`I8_LANES`]).
     pub n: usize,
     _phantom: PhantomData<D>,
 }
@@ -1021,7 +1033,7 @@ pub struct LinearLanesI8Op<D: FloatBytes + Send + Sync + 'static> {
 impl<D: FloatBytes + Send + Sync + 'static> LinearLanesI8Op<D> {
     /// Creates the op.
     pub fn new(k: usize, n: usize) -> Self {
-        assert!(n.is_multiple_of(LANES), "int8 lanes: {n} outputs are not a multiple of {LANES}");
+        assert!(n.is_multiple_of(I8_LANES), "int8 lanes: {n} outputs are not a multiple of {I8_LANES}");
         assert!(k.is_multiple_of(4), "int8 lanes: in features must be a multiple of 4");
         Self { k, n, _phantom: PhantomData }
     }
@@ -1041,7 +1053,7 @@ impl<D: FloatBytes + Send + Sync + 'static> CustomOp for LinearLanesI8Op<D> {
     }
 
     fn lower(&self) -> Option<(String, String, String, Arc<dyn RuntimeOp>)> {
-        let kernel = LinearLanesI8Forward::<D>::new(LANES as i32);
+        let kernel = LinearLanesI8Forward::<D>::new(I8_LANES as i32);
         Some((
             "linear_lanes_i8_forward".to_string(),
             kernel.source,
@@ -1091,6 +1103,6 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for LinearLanesI8RuntimeOp
     }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
-        [(self.n / LANES) as u32, output_shape[0].div_ceil(ROW_TILE) as u32, 1]
+        [(self.n / I8_LANES) as u32, output_shape[0].div_ceil(ROW_TILE) as u32, 1]
     }
 }
