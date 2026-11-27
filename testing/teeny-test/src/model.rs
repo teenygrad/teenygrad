@@ -330,7 +330,13 @@ struct Padded<'a> {
 struct Node<'a> {
     /// `None` for `Input` placeholder nodes.
     op: Option<NodeOp<'a>>,
+    /// The shape this run produces: [`Self::graph_shape`] resolved for the current
+    /// row count ([`RuntimeModel::set_rows`]).
     output_shape: Vec<usize>,
+    /// The graph's shape, whose unknown dimensions take the row count.
+    graph_shape: Shape,
+    /// Words the node needs at the compiled row count, the most any run can ask for.
+    max_words: usize,
     /// The output buffer, held only while something still needs it.
     ///
     /// An input's is allocated once and kept, since a feed is written before the run
@@ -374,6 +380,10 @@ pub struct RuntimeModel<'a> {
     /// Inputs this run passes in place ([`Feed::Borrow`]): input node to the
     /// caller's memory, which the kernels read instead of the node's buffer.
     borrowed: HashMap<usize, RawPtr>,
+    /// The row count the model was compiled for, which sized every buffer.
+    max_rows: usize,
+    /// The row count runs use now; see [`Self::set_rows`].
+    rows: usize,
 }
 
 impl<'a> RuntimeModel<'a> {
@@ -422,6 +432,8 @@ impl<'a> RuntimeModel<'a> {
                 nodes[idx] = Some(Node {
                     op: None,
                     output_shape: raw_output_shape,
+                    graph_shape: op.output_shape().clone(),
+                    max_words: words,
                     output: Some(output),
                     words,
                     // An input's buffer is its own, never from the pool.
@@ -501,6 +513,8 @@ impl<'a> RuntimeModel<'a> {
                     padded,
                 }),
                 output_shape,
+                graph_shape: op.output_shape().clone(),
+                max_words: words,
                 output: None,
                 words,
                 // Set when the pool hands this node a buffer.
@@ -533,7 +547,82 @@ impl<'a> RuntimeModel<'a> {
             profile: std::env::var_os("TEENY_RUNTIME_PROFILE").is_some(),
             buffers: BufferStats::default(),
             borrowed: HashMap::new(),
+            max_rows: batch_size,
+            rows: batch_size,
         })
+    }
+
+    /// The row count the model was compiled for: the most [`Self::set_rows`] accepts.
+    pub fn max_rows(&self) -> usize {
+        self.max_rows
+    }
+
+    /// The row count runs use now.
+    pub fn rows(&self) -> usize {
+        self.rows
+    }
+
+    /// Makes later runs use `rows` rows, from 1 up to [`Self::max_rows`]: every
+    /// dimension the graph left unknown takes `rows` instead of the compiled count.
+    ///
+    /// Nothing is allocated. Buffers were sized for the compiled count, and each node
+    /// now asks the pool for what `rows` needs, so one compiled model, with one copy
+    /// of its weights, serves any row count up to the one it was built for. Inputs are
+    /// fed, and outputs read, at the new shapes.
+    ///
+    /// Fails, leaving the row count as it was, if `rows` is out of range, or if an op
+    /// would change its parameters' shapes or writes a padded output, since neither
+    /// can follow a new row count.
+    pub fn set_rows(&mut self, rows: usize) -> Result<()> {
+        ensure!(
+            (1..=self.max_rows).contains(&rows),
+            "rows {rows} is outside 1..={} this model was compiled for",
+            self.max_rows
+        );
+        if rows == self.rows {
+            return Ok(());
+        }
+        // Resolve every node first, and commit only if all of them can follow.
+        let mut shapes: Vec<Vec<usize>> = vec![Vec::new(); self.nodes.len()];
+        let mut words: Vec<usize> = vec![0; self.nodes.len()];
+        for &idx in &self.topo {
+            let node = &self.nodes[idx];
+            let raw = resolve_shape(&node.graph_shape, rows);
+            let shape = match &node.op {
+                None => raw,
+                Some(op) => {
+                    let parent_shapes: Vec<&[usize]> =
+                        self.parents[idx].iter().map(|&p| shapes[p].as_slice()).collect();
+                    let shape = op.runtime_op.compute_concrete_output_shape(&parent_shapes, &raw);
+                    ensure!(
+                        op.runtime_op.param_shapes(&parent_shapes, &shape) == op.param_shapes,
+                        "node {idx}'s parameters change shape with the row count, so it \
+                         cannot run at {rows} rows"
+                    );
+                    ensure!(
+                        op.padded.is_none(),
+                        "node {idx} writes a padded output, which is sized for {} rows",
+                        self.max_rows
+                    );
+                    shape
+                }
+            };
+            let w = buffer_words(shape.iter().product(), node.dtype);
+            ensure!(
+                w <= node.max_words,
+                "node {idx} needs {w} words at {rows} rows, more than the {} it was \
+                 allocated",
+                node.max_words
+            );
+            shapes[idx] = shape;
+            words[idx] = w;
+        }
+        for &idx in &self.topo {
+            self.nodes[idx].output_shape = std::mem::take(&mut shapes[idx]);
+            self.nodes[idx].words = words[idx];
+        }
+        self.rows = rows;
+        Ok(())
     }
 
     /// What the last run cost in activation buffers.

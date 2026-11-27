@@ -237,6 +237,12 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for ExpertGemvMxfp8Runtime
         2
     }
 
+    /// One row per (token, slot): `top_k` times the input's rows, which a graph that
+    /// leaves the token count unknown cannot say until the rows are known.
+    fn compute_concrete_output_shape(&self, input_shapes: &[&[usize]], _resolved: &[usize]) -> Vec<usize> {
+        vec![input_shapes[0][0] * self.top_k, self.n]
+    }
+
     fn param_shapes(&self, _input_shapes: &[&[usize]], _output_shape: &[usize]) -> Vec<Vec<usize>> {
         // Bytes four to a word, as the row-major gather's, interleaved by rows at
         // load time.
