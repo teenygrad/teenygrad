@@ -366,6 +366,34 @@ mod launcher {
         })
     }
 
+    /// Workers on the SpacemiT K3's A100 cores for kernels that use their matrix
+    /// instructions, created on the first such launch: `TEENY_RISCV_A100_THREADS`
+    /// workers (default 8, the cluster's cores). The launching thread only waits, since
+    /// it runs on an X100 core.
+    fn a100_pool() -> &'static SpinPool {
+        static POOL: OnceLock<SpinPool> = OnceLock::new();
+        POOL.get_or_init(|| {
+            let workers = std::env::var("TEENY_RISCV_A100_THREADS")
+                .ok()
+                .and_then(|v| v.parse::<usize>().ok())
+                .unwrap_or(8)
+                .max(1);
+            let spin = Duration::from_micros(
+                std::env::var("TEENY_RISCV_SPIN_US")
+                    .ok()
+                    .and_then(|v| v.parse::<u64>().ok())
+                    .unwrap_or(200),
+            );
+            SpinPool::new(workers + 1, spin, |_| move_to_ai_cores())
+        })
+    }
+
+    /// Whether `entry_point` is a kernel for the K3's A100 cores, by name:
+    /// `*_a100_entry_point`.
+    fn runs_on_a100(entry_point: &str) -> bool {
+        entry_point.ends_with("_a100_entry_point")
+    }
+
     /// Moves the calling thread to the K3's A100 cores, through SpacemiT's
     /// `/proc/set_ai_thread` (which takes a thread id). Warns once and stays put where
     /// that is missing.
@@ -411,8 +439,9 @@ mod launcher {
 
         let [gx, gy, gz] = grid.map(u64::from);
         let total = gx * gy * gz;
-        let pool = pool();
-        let threads = (pool.threads() as u64).min(total).max(1);
+        let a100 = runs_on_a100(entry_point);
+        let pool = if a100 { a100_pool() } else { pool() };
+        let threads = if a100 { pool.workers() as u64 } else { (pool.threads() as u64).min(total).max(1) };
         let next = AtomicU64::new(0);
         let run = || {
             let mut frame = frame.clone();
@@ -431,7 +460,9 @@ mod launcher {
                 }
             }
         };
-        if threads == 1 {
+        if a100 {
+            pool.run_on_workers(&run);
+        } else if threads == 1 {
             run();
         } else {
             // Every pool thread pulls chunks until none are left, so slower threads (A100

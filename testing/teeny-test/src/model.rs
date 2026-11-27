@@ -539,8 +539,11 @@ impl<'a> RuntimeModel<'a> {
                 op.name()
             );
             let t_lookup = Instant::now();
-            let path = teeny_runtime::compile_kernel(&ExecKernel(op), target, force, false)
-                .with_context(|| format!("compiling node {idx} ({})", op.name()))?;
+            let path = match runtime_op.native_library() {
+                Some(lib) => lib.to_string_lossy().into_owned(),
+                None => teeny_runtime::compile_kernel(&ExecKernel(op), target, force, false)
+                    .with_context(|| format!("compiling node {idx} ({})", op.name()))?,
+            };
             Self::profile_add("\0compile:lookup", t_lookup.elapsed());
             let t_program = Instant::now();
             let program = loaded_program(&path)?;
