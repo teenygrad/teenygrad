@@ -36,7 +36,6 @@ use super::kernels::expert_gemv_nvfp4::{
 use super::runner::checkpoint_name;
 use super::weights::{Checkpoint, Encoding, pack_rows};
 use crate::kernels::linear::{int8_name, interleave_lanes, pack_bf16_halves, quantize_lanes_i8};
-use crate::kernels::linear_i4::{I4_GROUP, int4_name, lanes_i4_words, quantize_lanes_i4};
 use crate::kernels::linear_ime::quantize_ime_i8;
 
 /// What a slot needs from the checkpoint.
@@ -79,10 +78,6 @@ pub enum Source {
     /// Read what the inner source reads, then quantise it to int8 per output row
     /// for [`crate::kernels::linear::LinearLanesI8Op`]. The `.weight_i8` slots.
     LanesI8(Box<Source>),
-    /// Read what the inner source reads, then quantise it to int4 per output row and
-    /// group of inputs for [`crate::kernels::linear_i4::LinearLanesI4Op`]. The
-    /// `.weight_i4` slots; stored as [`int4_name`] when converted.
-    LanesI4(Box<Source>),
     /// Read what the inner source reads, then quantise it to int8 per output row in
     /// the A100 matrix engine's tiles, for [`crate::kernels::linear_ime::LinearImeOp`].
     /// The `.weight_ime` slots; stored as `<weight>.i8ime` when converted.
@@ -108,9 +103,6 @@ fn resolve_slot(slot: &str, layer: usize) -> Source {
     }
     if let Some(stem) = slot.strip_suffix(".weight_ime") {
         return Source::ImeI8(Box::new(resolve_slot(&format!("{stem}.weight"), layer)));
-    }
-    if let Some(stem) = slot.strip_suffix(".weight_i4") {
-        return Source::LanesI4(Box::new(resolve_slot(&format!("{stem}.weight"), layer)));
     }
     if let Some(stem) = slot.strip_suffix(".weight_i8") {
         return Source::LanesI8(Box::new(resolve_slot(&format!("{stem}.weight"), layer)));
@@ -192,7 +184,6 @@ fn missing_tensor(ck: &Checkpoint, src: &Source) -> Option<String> {
         Source::PackedBf16(inner)
         | Source::LanesBf16(inner)
         | Source::LanesI8(inner)
-        | Source::LanesI4(inner)
         | Source::ImeI8(inner) => missing_tensor(ck, inner),
     }
 }
@@ -257,10 +248,6 @@ fn stored_as_is(ck: &Checkpoint, src: &Source) -> Option<String> {
         Source::ByteScale(prefix) => byte_scale_name(prefix),
         Source::PackedBf16(inner) => match inner.as_ref() {
             Source::Tensor(name) => bf16_name(name),
-            _ => return None,
-        },
-        Source::LanesI4(inner) => match inner.as_ref() {
-            Source::Tensor(name) => int4_name(name),
             _ => return None,
         },
         Source::LanesI8(inner) => match inner.as_ref() {
@@ -360,32 +347,6 @@ fn read_source(
             }
             let values = read_source(ck, slot, inner, &[n, k])?;
             quantize_ime_i8(&values, n, k).map_err(|e| anyhow::anyhow!("slot {slot}: {e}"))?
-        }
-        Source::LanesI4(inner) => {
-            anyhow::ensure!(
-                declared.len() == 2 && declared[1] >= 1,
-                "slot {slot} is declared {declared:?}, expected [rows, words]"
-            );
-            // Words a row: k / 8 of nibbles and k / I4_GROUP scales.
-            let n = declared[0];
-            let k = declared[1] * 8 * I4_GROUP / (I4_GROUP + 8);
-            if let Source::Tensor(name) = inner.as_ref() {
-                let stored = int4_name(name);
-                if ck.has(&stored) {
-                    let buf = ck
-                        .param(&stored)
-                        .map_err(|e| anyhow::anyhow!("slot {slot} reads {stored}: {e}"))?;
-                    anyhow::ensure!(
-                        buf.len() == lanes_i4_words(n, k),
-                        "slot {slot}: {stored} holds {} words, expected {}",
-                        buf.len(),
-                        lanes_i4_words(n, k)
-                    );
-                    return Ok(buf);
-                }
-            }
-            let values = read_source(ck, slot, inner, &[n, k])?;
-            quantize_lanes_i4(&values, n, k).map_err(|e| anyhow::anyhow!("slot {slot}: {e}"))?
         }
         Source::LanesI8(inner) => {
             anyhow::ensure!(

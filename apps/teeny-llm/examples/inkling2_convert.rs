@@ -35,7 +35,6 @@ use std::path::PathBuf;
 use clap::Parser;
 use safetensors::tensor::{Dtype, TensorView};
 use teeny_llm::kernels::linear::{I8_LANES, int8_name, pack_bf16_halves, quantize_lanes_i8};
-use teeny_llm::kernels::linear_i4::{I4_GROUP, I4_LANES, int4_name, quantize_lanes_i4};
 use teeny_llm::models::inkling2::Inkling2Config;
 use teeny_llm::models::inkling2::kernels::expert_gemv_nvfp4::{QBLOCK, byte_scale_rows};
 use teeny_llm::models::inkling2::kernels::{expert_gemv_mxfp8, expert_gemv_nvfp4};
@@ -53,16 +52,13 @@ struct Args {
     model: PathBuf,
     /// Where to write the converted checkpoint.
     /// Where to write the converted checkpoint.
-    #[arg(long, required_unless_present_any = ["add_int8", "add_int4", "add_compact"])]
+    #[arg(long, required_unless_present_any = ["add_int8", "add_compact"])]
     out: Option<PathBuf>,
     /// Instead of converting, add the int8 linear weights to the converted
     /// checkpoint at `--model`, in place, so loading reads them rather than
     /// quantising at every start.
     #[arg(long)]
     add_int8: bool,
-    /// As `--add-int8`, for the int4 linears (`INKLING2_INT4=1`).
-    #[arg(long)]
-    add_int4: bool,
     /// Instead of converting, add the compact tensors to the converted checkpoint
     /// at this path, in place, reading them from the original at `--model`: the
     /// NVFP4 experts' E4M3 block scale bytes, which conversion folded into f32.
@@ -171,39 +167,6 @@ fn write_extra_shard(
 /// named [`int8_name`]. The existing tensors are untouched, so a build that does
 /// not know these names reads the checkpoint as before.
 fn add_int8(dir: &std::path::Path) -> anyhow::Result<()> {
-    add_quantised(
-        dir,
-        "int8",
-        &format!("converted-int8x{I8_LANES}.safetensors"),
-        |n, k| n % I8_LANES == 0 && k % 4 == 0,
-        int8_name,
-        quantize_lanes_i8,
-    )
-}
-
-/// [`add_int8`] for the int4 linears: [`quantize_lanes_i4`]'s buffers, named
-/// [`int4_name`], in a shard of their own.
-fn add_int4(dir: &std::path::Path) -> anyhow::Result<()> {
-    add_quantised(
-        dir,
-        "int4",
-        &format!("converted-int4g{I4_GROUP}x{I4_LANES}.safetensors"),
-        |n, k| n % I4_LANES == 0 && k % I4_GROUP == 0,
-        int4_name,
-        quantize_lanes_i4,
-    )
-}
-
-/// Quantises every 2-D linear weight `fits` takes with `quantise` and writes the
-/// buffers, named by `name_of`, to the shard `shard` of the converted checkpoint `dir`.
-fn add_quantised(
-    dir: &std::path::Path,
-    what: &str,
-    shard: &str,
-    fits: impl Fn(usize, usize) -> bool,
-    name_of: impl Fn(&str) -> String,
-    quantise: impl Fn(&[f32], usize, usize) -> Result<Vec<f32>, String>,
-) -> anyhow::Result<()> {
     let mut ck = Checkpoint::open(dir)?;
     anyhow::ensure!(
         ck.is_converted(),
@@ -221,17 +184,21 @@ fn add_quantised(
     for name in &names {
         let (values, shape, _) = ck.tensor(name)?;
         let [n, k] = shape[..] else { continue };
-        if !fits(n, k) {
+        if n % I8_LANES != 0 || k % 4 != 0 {
             continue;
         }
-        let buf = quantise(&values, n, k).map_err(|e| anyhow::anyhow!("{name}: {e}"))?;
-        owned.push((name_of(name), vec![buf.len()], bytes_of(&buf)));
+        let buf = quantize_lanes_i8(&values, n, k).map_err(|e| anyhow::anyhow!("{name}: {e}"))?;
+        owned.push((int8_name(name), vec![buf.len()], bytes_of(&buf)));
     }
-    // Named by layout, so a build reading another layout keeps its own shard.
-    write_extra_shard(dir, shard, &owned)?;
+    // Named by lane width, so a build reading another width keeps its own shard.
+    write_extra_shard(
+        dir,
+        &format!("converted-int8x{I8_LANES}.safetensors"),
+        &owned,
+    )?;
     let bytes: usize = owned.iter().map(|(_, _, b)| b.len()).sum();
     println!(
-        "added {} {what} linears, {:.2} GB, to {}",
+        "added {} int8 linears, {:.2} GB, to {}",
         owned.len(),
         bytes as f64 / 1e9,
         dir.display()
@@ -248,9 +215,6 @@ fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     if args.add_int8 {
         return add_int8(&args.model);
-    }
-    if args.add_int4 {
-        return add_int4(&args.model);
     }
     if let Some(dir) = &args.add_compact {
         return add_compact(&args.model, dir);

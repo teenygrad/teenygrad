@@ -24,7 +24,6 @@
 pub mod attention;
 pub mod last_row;
 pub mod linear;
-pub mod linear_i4;
 pub mod linear_ime;
 pub mod native;
 pub mod rope;

@@ -73,7 +73,6 @@ use super::kernels::{
 };
 use super::runner::Quant;
 use crate::kernels::linear::{I8_LANES, LANES, Linear4Bf16Op, LinearLanesBf16Op, LinearLanesI8Op};
-use crate::kernels::linear_i4::LinearLanesI4Op;
 use crate::kernels::linear_ime as ime;
 
 fn wrap(like: &SymTensor, node_id: usize, shape: Shape) -> SymTensor {
@@ -111,9 +110,6 @@ fn linear<D: FloatBytes + Send + Sync + 'static>(x: &SymTensor, k: usize, n: usi
     // INKLING2_IME=1 runs the int8 linears on the K3's A100 matrix engine, with int8
     // activations: see `kernels::linear_ime`.
     let ime = int8 && std::env::var("INKLING2_IME").is_ok_and(|v| v == "1");
-    // INKLING2_INT4=1 quantises them to int4 instead, a scale per row and 64 inputs:
-    // about 0.56 bytes a weight against int8's 1, at some cost in accuracy.
-    let int4 = int8 && !ime && std::env::var("INKLING2_INT4").is_ok_and(|v| v == "1");
     if ime && n.is_multiple_of(ime::TILE) && k.is_multiple_of(ime::K_MULTIPLE) {
         let packed = ime_packed::<D>(x, k);
         packed.record_named(
@@ -121,8 +117,6 @@ fn linear<D: FloatBytes + Send + Sync + 'static>(x: &SymTensor, k: usize, n: usi
             &[x],
             None,
         )
-    } else if int4 && LinearLanesI4Op::<D>::fits(k, n) {
-        x.record_named(CustomData::new(LinearLanesI4Op::<D>::new(k, n)), &[], None)
     } else if int8 && n.is_multiple_of(I8_LANES) && k.is_multiple_of(4) {
         x.record_named(CustomData::new(LinearLanesI8Op::<D>::new(k, n)), &[], None)
     } else if n.is_multiple_of(LANES) {
