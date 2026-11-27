@@ -36,6 +36,7 @@ use super::kernels::expert_gemv_nvfp4::{
 };
 use super::weights::{Checkpoint, Encoding, pack_rows};
 use crate::kernels::linear::{int8_name, interleave_lanes, pack_bf16_halves, quantize_lanes_i8};
+use crate::kernels::linear_ime::quantize_ime_i8;
 
 /// What a slot needs from the checkpoint.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -77,6 +78,10 @@ pub enum Source {
     /// Read what the inner source reads, then quantise it to int8 per output row
     /// for [`crate::kernels::linear::LinearLanesI8Op`]. The `.weight_i8` slots.
     LanesI8(Box<Source>),
+    /// Read what the inner source reads, then quantise it to int8 per output row in
+    /// the A100 matrix engine's tiles, for [`crate::kernels::linear_ime::LinearImeOp`].
+    /// The `.weight_ime` slots; stored as `<weight>.i8ime` when converted.
+    ImeI8(Box<Source>),
 }
 
 /// Where each slot of a layer comes from.
@@ -92,6 +97,9 @@ fn resolve_slot(slot: &str, layer: usize) -> Source {
     // A packed bf16 weight reads whatever the plain `.weight` slot would.
     if let Some(base) = slot.strip_suffix("_bf16").filter(|b| b.ends_with(".weight")) {
         return Source::PackedBf16(Box::new(resolve_slot(base, layer)));
+    }
+    if let Some(stem) = slot.strip_suffix(".weight_ime") {
+        return Source::ImeI8(Box::new(resolve_slot(&format!("{stem}.weight"), layer)));
     }
     if let Some(stem) = slot.strip_suffix(".weight_i8") {
         return Source::LanesI8(Box::new(resolve_slot(&format!("{stem}.weight"), layer)));
@@ -174,7 +182,10 @@ fn missing_tensor(ck: &Checkpoint, src: &Source) -> Option<String> {
                 None
             }
         }
-        Source::PackedBf16(inner) | Source::LanesBf16(inner) | Source::LanesI8(inner) => {
+        Source::PackedBf16(inner)
+        | Source::LanesBf16(inner)
+        | Source::LanesI8(inner)
+        | Source::ImeI8(inner) => {
             missing_tensor(ck, inner)
         }
     }
@@ -210,6 +221,12 @@ pub fn read(
         .collect()
 }
 
+/// The name a converted checkpoint stores a linear's A100 matrix-engine int8 buffer
+/// under (`inkling2_convert --add-int8`).
+pub fn ime_name(name: &str) -> String {
+    format!("{name}.i8ime")
+}
+
 /// The name a converted checkpoint stores a weight already packed as bf16 pairs
 /// under (`inkling2_convert --add-compact`).
 pub fn bf16_name(name: &str) -> String {
@@ -238,6 +255,10 @@ fn stored_as_is(ck: &Checkpoint, src: &Source) -> Option<String> {
         },
         Source::LanesI8(inner) => match inner.as_ref() {
             Source::Tensor(name) => int8_name(name),
+            _ => return None,
+        },
+        Source::ImeI8(inner) => match inner.as_ref() {
+            Source::Tensor(name) => ime_name(name),
             _ => return None,
         },
         _ => return None,
@@ -307,6 +328,21 @@ fn read_source(
             let values = read_source(ck, slot, inner, declared)?;
             pack_bf16_halves(&values, declared[0], declared[1] * 2)
                 .map_err(|e| anyhow::anyhow!("slot {slot}: {e}"))?
+        }
+        Source::ImeI8(inner) => {
+            anyhow::ensure!(
+                declared.len() == 2 && declared[1] >= 1,
+                "slot {slot} is declared {declared:?}, expected [rows, words + 1]"
+            );
+            let (n, k) = (declared[0], (declared[1] - 1) * 4);
+            if let Source::Tensor(name) = inner.as_ref() {
+                let stored = ime_name(name);
+                if ck.has(&stored) {
+                    return ck.param(&stored).map_err(|e| anyhow::anyhow!("slot {slot} reads {stored}: {e}"));
+                }
+            }
+            let values = read_source(ck, slot, inner, &[n, k])?;
+            quantize_ime_i8(&values, n, k).map_err(|e| anyhow::anyhow!("slot {slot}: {e}"))?
         }
         Source::LanesI8(inner) => {
             anyhow::ensure!(

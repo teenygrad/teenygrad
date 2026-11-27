@@ -74,6 +74,7 @@ use super::kernels::{
 };
 use super::runner::Quant;
 use crate::kernels::linear::{I8_LANES, LANES, Linear4Bf16Op, LinearLanesBf16Op, LinearLanesI8Op};
+use crate::kernels::linear_ime as ime;
 
 fn wrap(like: &SymTensor, node_id: usize, shape: Shape) -> SymTensor {
     SymTensor {
@@ -107,13 +108,43 @@ fn add(a: &SymTensor, b: &SymTensor) -> SymTensor {
 fn linear<D: FloatBytes + Send + Sync + 'static>(x: &SymTensor, k: usize, n: usize) -> SymTensor {
     // INKLING2_BF16_LINEARS keeps the exact bf16 weights, to compare against.
     let int8 = std::env::var_os("INKLING2_BF16_LINEARS").is_none();
-    if int8 && n.is_multiple_of(I8_LANES) && k.is_multiple_of(4) {
+    // INKLING2_IME=1 runs the int8 linears on the K3's A100 matrix engine, with int8
+    // activations: see `kernels::linear_ime`.
+    let ime = int8 && std::env::var("INKLING2_IME").is_ok_and(|v| v == "1");
+    if ime && n.is_multiple_of(ime::TILE) && k.is_multiple_of(ime::K_MULTIPLE) {
+        let packed = ime_packed::<D>(x, k);
+        packed.record_custom(CustomData::new(ime::LinearImeOp::<D>::new(k, n)), &[x], None)
+    } else if int8 && n.is_multiple_of(I8_LANES) && k.is_multiple_of(4) {
         x.record_custom(CustomData::new(LinearLanesI8Op::<D>::new(k, n)), &[], None)
     } else if n.is_multiple_of(LANES) {
         x.record_custom(CustomData::new(LinearLanesBf16Op::<D>::new(k, n)), &[], None)
     } else {
         x.record_custom(CustomData::new(Linear4Bf16Op::<D>::new(k, n, 16)), &[], None)
     }
+}
+
+thread_local! {
+    /// Activations already packed for the matrix engine, by the tensor they came from
+    /// (its graph and node). The query, key, value and gate projections all read the
+    /// same normed state; quantising it once instead of four times saves three
+    /// launches per layer execution. Holding the tensor keeps its graph alive, so a
+    /// graph's address cannot be reused for another while it is cached.
+    static IME_PACKED: std::cell::RefCell<std::collections::HashMap<(usize, usize), SymTensor>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// `x` quantised and packed for [`ime::LinearImeOp`], once per tensor.
+fn ime_packed<D: FloatBytes + Send + Sync + 'static>(x: &SymTensor, k: usize) -> SymTensor {
+    let key = (std::rc::Rc::as_ptr(&x.graph) as *const () as usize, x.node_id);
+    if let Some(p) = IME_PACKED.with(|c| c.borrow().get(&key).cloned()) {
+        return p;
+    }
+    let packed = {
+        let _g = name_scope("quant");
+        x.record_custom(CustomData::new(ime::QuantPackI8Op::<D>::new(k)), &[], None)
+    };
+    IME_PACKED.with(|c| c.borrow_mut().insert(key, packed.clone()));
+    packed
 }
 
 /// Re-packs the router's ids so the down projection can be gathered with `top_k = 1`.

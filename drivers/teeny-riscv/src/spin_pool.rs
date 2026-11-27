@@ -140,6 +140,33 @@ impl SpinPool {
             std::hint::spin_loop();
         }
     }
+
+    /// [`Self::run`] on the workers alone: the caller publishes `job` and waits.
+    ///
+    /// For a pool whose workers sit on other cores than the caller -- the K3's A100
+    /// cores, whose matrix instructions the X100 core launching the job cannot run.
+    pub fn run_on_workers(&self, job: &(dyn Fn() + Sync)) {
+        assert!(!self.workers.is_empty(), "a pool with no workers cannot run a job on them");
+        let _one_job = self.running.lock().unwrap_or_else(PoisonError::into_inner);
+        let shared = &self.shared;
+        let ptr: *const (dyn Fn() + Sync + 'static) =
+            unsafe { std::mem::transmute(job as *const (dyn Fn() + Sync)) };
+        *shared.job.lock().unwrap_or_else(PoisonError::into_inner) = Some(JobPtr(ptr));
+        shared.pending.store(self.workers.len(), Ordering::SeqCst);
+        shared.epoch.fetch_add(1, Ordering::SeqCst);
+        if shared.sleepers.load(Ordering::SeqCst) > 0 {
+            let _guard = shared.lock.lock().unwrap_or_else(PoisonError::into_inner);
+            shared.wake.notify_all();
+        }
+        while shared.pending.load(Ordering::Acquire) != 0 {
+            std::hint::spin_loop();
+        }
+    }
+
+    /// Worker threads, not counting the caller.
+    pub fn workers(&self) -> usize {
+        self.workers.len()
+    }
 }
 
 impl Drop for SpinPool {
@@ -215,6 +242,24 @@ mod tests {
             });
         }
         assert_eq!(count.load(Ordering::Relaxed), 4 * 1000);
+    }
+
+    #[test]
+    fn run_on_workers_runs_once_per_worker_and_not_on_the_caller() {
+        let pool = SpinPool::new(4, Duration::from_micros(50), |_| {});
+        let caller = std::thread::current().id();
+        let count = AtomicU64::new(0);
+        let on_caller = AtomicU64::new(0);
+        for _ in 0..500 {
+            pool.run_on_workers(&|| {
+                count.fetch_add(1, Ordering::Relaxed);
+                if std::thread::current().id() == caller {
+                    on_caller.fetch_add(1, Ordering::Relaxed);
+                }
+            });
+        }
+        assert_eq!(count.load(Ordering::Relaxed), 3 * 500);
+        assert_eq!(on_caller.load(Ordering::Relaxed), 0);
     }
 
     #[test]
