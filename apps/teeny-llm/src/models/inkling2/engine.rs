@@ -628,6 +628,18 @@ impl<'d> Engine<'d> {
                 std::fs::write(&p, &bytes)
                     .with_context(|| format!("writing the execution trace to {p}"))?;
             }
+            // The step's tokens and the block states the head reads, so a host-side
+            // reference can rebuild the final-norm hidden and line traces up with ids.
+            let ids: Vec<u8> = tokens.iter().flat_map(|v| v.to_le_bytes()).collect();
+            let blocks: Vec<u8> = interleave_blocks(&self.state.blocks, t, hid)
+                .iter()
+                .chain(x.iter())
+                .flat_map(|v| v.to_le_bytes())
+                .collect();
+            for (suffix, data) in [(".ids.bin", &ids), (".blocks.bin", &blocks)] {
+                let p = path.replace(".bin", &format!(".{at}{suffix}"));
+                std::fs::write(&p, data).with_context(|| format!("writing {p}"))?;
+            }
         }
         self.state.len += t;
         self.past.set(self.state.len);
