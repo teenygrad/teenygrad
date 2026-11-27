@@ -153,6 +153,7 @@ pub mod engine;
 pub mod kernels;
 pub mod load;
 pub mod model;
+pub mod naming;
 pub mod runner;
 pub mod session;
 pub mod weights;

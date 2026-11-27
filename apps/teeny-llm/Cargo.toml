@@ -40,10 +40,9 @@ inkling2 = [
   "dep:minijinja-contrib",
   "dep:safetensors",
   "dep:serde",
-  "dep:serde_json",
   "dep:teeny-kernels",
   "dep:teeny-test",
-  "dep:tokenizers",
+  "hf-tokenizer",
 ]
 # The kernels shared between models (`teeny_llm::kernels`). Enabled by every model
 # feature; on its own it builds the kernels without any model.

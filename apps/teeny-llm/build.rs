@@ -31,7 +31,8 @@ fn main() {
     let out = PathBuf::from(std::env::var("OUT_DIR").expect("cargo sets OUT_DIR"));
     let wanted = std::env::var_os("CARGO_FEATURE_RISCV").is_some()
         || std::env::var_os("CARGO_FEATURE_QEMU").is_some();
-    let cc = std::env::var("TEENY_RISCV_CC").unwrap_or_else(|_| "riscv64-linux-gnu-gcc".to_string());
+    let cc =
+        std::env::var("TEENY_RISCV_CC").unwrap_or_else(|_| "riscv64-linux-gnu-gcc".to_string());
     println!("cargo::rerun-if-env-changed=TEENY_RISCV_CC");
     for name in KERNELS {
         let src = format!("native/{name}.c");
@@ -39,7 +40,15 @@ fn main() {
         let lib = out.join(format!("{name}.so"));
         let built = wanted
             && Command::new(&cc)
-                .args(["-O3", "-march=rv64gcv", "-mabi=lp64d", "-shared", "-fPIC", "-nostartfiles", "-o"])
+                .args([
+                    "-O3",
+                    "-march=rv64gcv",
+                    "-mabi=lp64d",
+                    "-shared",
+                    "-fPIC",
+                    "-nostartfiles",
+                    "-o",
+                ])
                 .arg(&lib)
                 .arg(&src)
                 .arg("-lm")
@@ -47,7 +56,9 @@ fn main() {
                 .is_ok_and(|s| s.success());
         if !built {
             if wanted {
-                println!("cargo::warning=could not build native kernel {name} with {cc}; ops that use it will fail to load");
+                println!(
+                    "cargo::warning=could not build native kernel {name} with {cc}; ops that use it will fail to load"
+                );
             }
             std::fs::write(&lib, []).expect("writing an empty placeholder library");
         }

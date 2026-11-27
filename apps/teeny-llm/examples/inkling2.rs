@@ -147,7 +147,9 @@ fn main() -> anyhow::Result<()> {
 
         let t_prompt = Instant::now();
         let mut logits = Vec::new();
-        let chunk = args.prompt_chunk.clamp(1, teeny_llm::models::inkling2::engine::MAX_TOKENS);
+        let chunk = args
+            .prompt_chunk
+            .clamp(1, teeny_llm::models::inkling2::engine::MAX_TOKENS);
         let mut done = 0usize;
         for tokens in prompt[engine.tokens.len()..].chunks(chunk) {
             logits = engine.step_many(&device, tokens)?;

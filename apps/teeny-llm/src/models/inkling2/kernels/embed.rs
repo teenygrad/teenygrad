@@ -73,14 +73,30 @@ pub fn embed_forward<T: Triton, D: Float, const BLOCK: i32>(
     );
     let row = T::cast::<D, i32>(id, None, false);
     let word = T::cast::<D, i32>(
-        T::load(w_ptr.add_offsets(j + row * half), Some(m), Some(zeros), &[], None, None, None, false),
+        T::load(
+            w_ptr.add_offsets(j + row * half),
+            Some(m),
+            Some(zeros),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        ),
         None,
         true,
     );
     let lo = T::cast::<i32, D>(word << 16, None, true);
     let hi = T::cast::<i32, D>(word & -65536, None, true);
     T::store(y_ptr.add_offsets(j + t * H), lo, Some(m), &[], None, None);
-    T::store(y_ptr.add_offsets(j + (t * H + half)), hi, Some(m), &[], None, None);
+    T::store(
+        y_ptr.add_offsets(j + (t * H + half)),
+        hi,
+        Some(m),
+        &[],
+        None,
+        None,
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -108,7 +124,10 @@ pub struct EmbedOp<D: FloatBytes + Send + Sync + 'static> {
 impl<D: FloatBytes + Send + Sync + 'static> EmbedOp<D> {
     /// Creates the op.
     pub fn new(vocab: usize, hidden: usize) -> Self {
-        assert!(hidden.is_multiple_of(2), "embed: hidden size must be even for bf16 pairs");
+        assert!(
+            hidden.is_multiple_of(2),
+            "embed: hidden size must be even for bf16 pairs"
+        );
         Self {
             vocab,
             hidden,

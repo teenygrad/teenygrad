@@ -168,7 +168,8 @@ pub fn expert_gemv_nvfp4_forward<T: Triton, D: Float, const ROWS: i32>(
     let mut first = 1;
     for earlier in 0..slot {
         let t = earlier / TOP_K;
-        let id = T::load_scalar_f32_as_i32(ids_ptr, t * IDS_STRIDE + IDS_OFFSET + (earlier - t * TOP_K));
+        let id =
+            T::load_scalar_f32_as_i32(ids_ptr, t * IDS_STRIDE + IDS_OFFSET + (earlier - t * TOP_K));
         if id == expert {
             first = 0;
         }
@@ -220,7 +221,8 @@ pub fn expert_gemv_nvfp4_forward<T: Triton, D: Float, const ROWS: i32>(
         let sbase = row_block * blocks * ROWS;
         for s in slot..SLOTS {
             let st = s / TOP_K;
-            let sid = T::load_scalar_f32_as_i32(ids_ptr, st * IDS_STRIDE + IDS_OFFSET + (s - st * TOP_K));
+            let sid =
+                T::load_scalar_f32_as_i32(ids_ptr, st * IDS_STRIDE + IDS_OFFSET + (s - st * TOP_K));
             if sid == expert {
                 let xbase = st * X_STRIDE;
 
@@ -279,7 +281,10 @@ pub fn expert_gemv_nvfp4_forward<T: Triton, D: Float, const ROWS: i32>(
                         None,
                         false,
                     );
-                    acc = acc + T::cast::<i16, D>(iacc, None, false) * ws * T::cast::<f32, D>(xs, None, false);
+                    acc = acc
+                        + T::cast::<i16, D>(iacc, None, false)
+                            * ws
+                            * T::cast::<f32, D>(xs, None, false);
                 }
                 T::store(
                     y_ptr.add_offsets(lanes + (s * N + rb * ROWS)),
@@ -307,11 +312,27 @@ pub fn byte_scale_words(experts: usize, n: usize, k: usize) -> usize {
 ///
 /// A byte a block instead of the folded f32's four: a third of every NVFP4 expert's
 /// bytes, read once a token in decode and once at every load.
-pub fn byte_scale_rows(bytes: &[f32], scale2: &[f32], experts: usize, n: usize, k: usize) -> Vec<f32> {
+pub fn byte_scale_rows(
+    bytes: &[f32],
+    scale2: &[f32],
+    experts: usize,
+    n: usize,
+    k: usize,
+) -> Vec<f32> {
     let blocks = k / QBLOCK;
     assert_eq!(bytes.len(), experts * n * blocks, "byte scales: size");
-    assert_eq!(scale2.len(), experts, "byte scales: one outer scale per expert");
-    let mut out = interleave_row_bytes(&super::super::weights::pack_rows(bytes, blocks), experts, n, blocks, ROWS);
+    assert_eq!(
+        scale2.len(),
+        experts,
+        "byte scales: one outer scale per expert"
+    );
+    let mut out = interleave_row_bytes(
+        &super::super::weights::pack_rows(bytes, blocks),
+        experts,
+        n,
+        blocks,
+        ROWS,
+    );
     out.truncate(experts * n * blocks / 4);
     out.extend(scale2.iter().map(|s| s * 0.5));
     out
@@ -332,11 +353,22 @@ pub fn interleave_row_bytes(
     rows: usize,
 ) -> Vec<f32> {
     let row_words = row_bytes.div_ceil(4);
-    assert_eq!(words.len(), experts * n * row_words, "interleave bytes: size");
-    assert_eq!(n % rows, 0, "interleave bytes: {n} rows do not split into blocks of {rows}");
+    assert_eq!(
+        words.len(),
+        experts * n * row_words,
+        "interleave bytes: size"
+    );
+    assert_eq!(
+        n % rows,
+        0,
+        "interleave bytes: {n} rows do not split into blocks of {rows}"
+    );
     // Every row's bytes once, so the transposition below is plain indexing. This
     // runs over the whole checkpoint at load, so it is written for speed.
-    let src: Vec<u8> = words.iter().flat_map(|w| w.to_bits().to_le_bytes()).collect();
+    let src: Vec<u8> = words
+        .iter()
+        .flat_map(|w| w.to_bits().to_le_bytes())
+        .collect();
     let row_stride = row_words * 4;
     let mut out = vec![0u8; (experts * n * row_bytes).div_ceil(4) * 4];
     for (block, dst) in out[..experts * n * row_bytes]
@@ -362,9 +394,19 @@ pub fn interleave_row_bytes(
 /// Applied to the folded scales, this is the layout [`expert_gemv_nvfp4_forward`]
 /// reads with one contiguous load per block; the weights take
 /// [`interleave_row_bytes`].
-pub fn interleave_rows(src: &[f32], experts: usize, n: usize, width: usize, rows: usize) -> Vec<f32> {
+pub fn interleave_rows(
+    src: &[f32],
+    experts: usize,
+    n: usize,
+    width: usize,
+    rows: usize,
+) -> Vec<f32> {
     assert_eq!(src.len(), experts * n * width, "interleave: size");
-    assert_eq!(n % rows, 0, "interleave: {n} rows do not split into blocks of {rows}");
+    assert_eq!(
+        n % rows,
+        0,
+        "interleave: {n} rows do not split into blocks of {rows}"
+    );
     let mut out = vec![0.0f32; src.len()];
     for e in 0..experts {
         for rb in 0..n / rows {
@@ -403,7 +445,10 @@ impl<D: FloatBytes + Send + Sync + 'static> QuantRowsQ8Op<D> {
     /// Quantises rows of `k`, which must be a multiple of 16.
     pub fn new(k: usize) -> Self {
         assert_eq!(k % QBLOCK, 0, "q8 rows: {k} is not a multiple of {QBLOCK}");
-        Self { k, _phantom: PhantomData }
+        Self {
+            k,
+            _phantom: PhantomData,
+        }
     }
 }
 
@@ -426,7 +471,10 @@ impl<D: FloatBytes + Send + Sync + 'static> CustomOp for QuantRowsQ8Op<D> {
             "quant_rows_q8_forward".to_string(),
             kernel.source,
             "entry_point".to_string(),
-            Arc::new(QuantRowsQ8RuntimeOp::<D> { k: self.k, _phantom: PhantomData }),
+            Arc::new(QuantRowsQ8RuntimeOp::<D> {
+                k: self.k,
+                _phantom: PhantomData,
+            }),
         ))
     }
 }
@@ -485,10 +533,27 @@ pub struct ExpertGemvNvfp4Op<D: FloatBytes + Send + Sync + 'static> {
 impl<D: FloatBytes + Send + Sync + 'static> ExpertGemvNvfp4Op<D> {
     /// A projection over `experts` planes of `[n, k]`, with `top_k` slots per token.
     pub fn new(experts: usize, n: usize, k: usize, top_k: usize) -> Self {
-        assert!(top_k > 0 && top_k <= experts, "expert gemv: top_k out of range");
-        assert_eq!(n % ROWS, 0, "expert gemv: {n} rows are not a multiple of {ROWS}");
-        assert_eq!(k % QBLOCK, 0, "expert gemv: {k} is not a multiple of {QBLOCK}");
-        Self { experts, n, k, top_k, _phantom: PhantomData }
+        assert!(
+            top_k > 0 && top_k <= experts,
+            "expert gemv: top_k out of range"
+        );
+        assert_eq!(
+            n % ROWS,
+            0,
+            "expert gemv: {n} rows are not a multiple of {ROWS}"
+        );
+        assert_eq!(
+            k % QBLOCK,
+            0,
+            "expert gemv: {k} is not a multiple of {QBLOCK}"
+        );
+        Self {
+            experts,
+            n,
+            k,
+            top_k,
+            _phantom: PhantomData,
+        }
     }
 }
 
@@ -538,14 +603,21 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for ExpertGemvNvfp4Runtime
 
     /// One row per (token, slot): `top_k` times the input's rows, which a graph that
     /// leaves the token count unknown cannot say until the rows are known.
-    fn compute_concrete_output_shape(&self, input_shapes: &[&[usize]], _resolved: &[usize]) -> Vec<usize> {
+    fn compute_concrete_output_shape(
+        &self,
+        input_shapes: &[&[usize]],
+        _resolved: &[usize],
+    ) -> Vec<usize> {
         vec![input_shapes[0][0] * self.top_k, self.n]
     }
 
     fn param_shapes(&self, _input_shapes: &[&[usize]], _output_shape: &[usize]) -> Vec<Vec<usize>> {
         // The same element counts as the row-major gather's, interleaved by
         // `interleave_rows` at load time; the scales also carry E2M1's factor of 1/2.
-        vec![vec![self.experts, self.n, self.k / 8], vec![byte_scale_words(self.experts, self.n, self.k)]]
+        vec![
+            vec![self.experts, self.n, self.k / 8],
+            vec![byte_scale_words(self.experts, self.n, self.k)],
+        ]
     }
 
     fn param_names(&self) -> &'static [&'static str] {
@@ -562,7 +634,10 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for ExpertGemvNvfp4Runtime
         visitor: &mut dyn ArgVisitor,
     ) {
         let x_stride = self.k + self.k / QBLOCK;
-        assert_eq!(inputs[0].1[1], x_stride, "expert gemv: quantised input width");
+        assert_eq!(
+            inputs[0].1[1], x_stride,
+            "expert gemv: quantised input width"
+        );
         let ids_stride = inputs[1].1[1];
         assert!(
             ids_stride >= self.top_k,

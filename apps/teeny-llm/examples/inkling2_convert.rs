@@ -73,9 +73,17 @@ struct Args {
 fn add_compact(original: &std::path::Path, dir: &std::path::Path) -> anyhow::Result<()> {
     let cfg = Inkling2Config::load(&original.join("config.json"))?.text_config;
     let mut orig = Checkpoint::open(original)?;
-    anyhow::ensure!(!orig.is_converted(), "{} is converted; pass the original", original.display());
+    anyhow::ensure!(
+        !orig.is_converted(),
+        "{} is converted; pass the original",
+        original.display()
+    );
     let mut conv = Checkpoint::open(dir)?;
-    anyhow::ensure!(conv.is_converted(), "{} is not a converted checkpoint", dir.display());
+    anyhow::ensure!(
+        conv.is_converted(),
+        "{} is not a converted checkpoint",
+        dir.display()
+    );
     let layer_of = |n: &str| -> Option<usize> {
         n.strip_prefix("model.llm.layers.")
             .and_then(|r| r.split('.').next())
@@ -105,18 +113,28 @@ fn add_compact(original: &std::path::Path, dir: &std::path::Path) -> anyhow::Res
     let [vocab, hidden] = shape[..] else {
         anyhow::bail!("{embed} is {shape:?}, expected [vocab, hidden]")
     };
-    let packed = pack_bf16_halves(&values, vocab, hidden).map_err(|e| anyhow::anyhow!("{embed}: {e}"))?;
+    let packed =
+        pack_bf16_halves(&values, vocab, hidden).map_err(|e| anyhow::anyhow!("{embed}: {e}"))?;
     owned.push((bf16_name(embed), vec![vocab, hidden / 2], bytes_of(&packed)));
     let shard = "converted-compact.safetensors";
     write_extra_shard(dir, shard, &owned)?;
     let bytes: usize = owned.iter().map(|(_, _, b)| b.len()).sum();
-    println!("added {} compact tensors, {:.2} GB, to {}", owned.len(), bytes as f64 / 1e9, dir.display());
+    println!(
+        "added {} compact tensors, {:.2} GB, to {}",
+        owned.len(),
+        bytes as f64 / 1e9,
+        dir.display()
+    );
     Ok(())
 }
 
 /// Writes `owned` as the shard `shard` of the checkpoint at `dir` and adds its
 /// tensors to the index.
-fn write_extra_shard(dir: &std::path::Path, shard: &str, owned: &[(String, Vec<usize>, Vec<u8>)]) -> anyhow::Result<()> {
+fn write_extra_shard(
+    dir: &std::path::Path,
+    shard: &str,
+    owned: &[(String, Vec<usize>, Vec<u8>)],
+) -> anyhow::Result<()> {
     let views: HashMap<String, TensorView> = owned
         .iter()
         .map(|(n, shape, bytes)| {
@@ -129,7 +147,8 @@ fn write_extra_shard(dir: &std::path::Path, shard: &str, owned: &[(String, Vec<u
         .collect::<anyhow::Result<_>>()?;
     std::fs::write(
         dir.join(shard),
-        safetensors::serialize(&views, None).map_err(|e| anyhow::anyhow!("serialising {shard}: {e}"))?,
+        safetensors::serialize(&views, None)
+            .map_err(|e| anyhow::anyhow!("serialising {shard}: {e}"))?,
     )?;
     let index_path = dir.join("model.safetensors.index.json");
     let mut idx: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&index_path)?)?;
@@ -143,14 +162,17 @@ fn write_extra_shard(dir: &std::path::Path, shard: &str, owned: &[(String, Vec<u
     Ok(())
 }
 
-
 /// Writes `converted-int8.safetensors` into a converted checkpoint: for every 2-D
 /// linear weight the lanes kernel can take, the buffer [`quantize_lanes_i8`] gives,
 /// named [`int8_name`]. The existing tensors are untouched, so a build that does
 /// not know these names reads the checkpoint as before.
 fn add_int8(dir: &std::path::Path) -> anyhow::Result<()> {
     let mut ck = Checkpoint::open(dir)?;
-    anyhow::ensure!(ck.is_converted(), "{} is not a converted checkpoint", dir.display());
+    anyhow::ensure!(
+        ck.is_converted(),
+        "{} is not a converted checkpoint",
+        dir.display()
+    );
     let mut names: Vec<String> = ck
         .names()
         .filter(|n| n.starts_with("model.llm.") && n.ends_with(".weight"))
@@ -169,9 +191,18 @@ fn add_int8(dir: &std::path::Path) -> anyhow::Result<()> {
         owned.push((int8_name(name), vec![buf.len()], bytes_of(&buf)));
     }
     // Named by lane width, so a build reading another width keeps its own shard.
-    write_extra_shard(dir, &format!("converted-int8x{I8_LANES}.safetensors"), &owned)?;
+    write_extra_shard(
+        dir,
+        &format!("converted-int8x{I8_LANES}.safetensors"),
+        &owned,
+    )?;
     let bytes: usize = owned.iter().map(|(_, _, b)| b.len()).sum();
-    println!("added {} int8 linears, {:.2} GB, to {}", owned.len(), bytes as f64 / 1e9, dir.display());
+    println!(
+        "added {} int8 linears, {:.2} GB, to {}",
+        owned.len(),
+        bytes as f64 / 1e9,
+        dir.display()
+    );
     Ok(())
 }
 
@@ -188,7 +219,10 @@ fn main() -> anyhow::Result<()> {
     if let Some(dir) = &args.add_compact {
         return add_compact(&args.model, dir);
     }
-    let out_dir = args.out.clone().expect("clap requires --out without --add-int8");
+    let out_dir = args
+        .out
+        .clone()
+        .expect("clap requires --out without --add-int8");
     let cfg = Inkling2Config::load(&args.model.join("config.json"))?.text_config;
     let mut ck = Checkpoint::open(&args.model)?;
     std::fs::create_dir_all(&out_dir)?;
@@ -236,7 +270,10 @@ fn main() -> anyhow::Result<()> {
                 teeny_llm::models::inkling2::weights::Encoding::Bytes
             );
             // [experts, rows, ...]: the rows-as-lanes projections interleave by rows.
-            let (experts, rows) = (shape.first().copied().unwrap_or(1), shape.get(1).copied().unwrap_or(1));
+            let (experts, rows) = (
+                shape.first().copied().unwrap_or(1),
+                shape.get(1).copied().unwrap_or(1),
+            );
             let row_len = *shape.last().unwrap_or(&values.len());
 
             let out: Vec<f32> = match quant {
@@ -251,7 +288,13 @@ fn main() -> anyhow::Result<()> {
                         .enumerate()
                         .map(|(i, b)| e4m3_to_f32(*b as u8) * s2[i / per] * 0.5)
                         .collect();
-                    expert_gemv_nvfp4::interleave_rows(&folded, experts, rows, row_len, expert_gemv_nvfp4::ROWS)
+                    expert_gemv_nvfp4::interleave_rows(
+                        &folded,
+                        experts,
+                        rows,
+                        row_len,
+                        expert_gemv_nvfp4::ROWS,
+                    )
                 }
                 Some(Quant::Nvfp4) if is_expert_weight => expert_gemv_nvfp4::interleave_row_bytes(
                     &pack_rows(&values, row_len),

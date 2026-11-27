@@ -324,12 +324,30 @@ pub fn rel_bias_fused_forward<T: Triton, D: Float, const BLOCK: i32, const D_REL
     // this head's D_REL values, each read as a broadcast.
     let mut ss = T::zeros::<D>(&[BLOCK]);
     for d in 0..D_REL {
-        let v = T::load(x_ptr.add_offsets(splat + (row * D_REL + d)), None, None, &[], None, None, None, false)
-            * T::load(s_ptr.add_offsets(splat + (head * D_REL + d)), None, None, &[], None, None, None, false);
+        let v = T::load(
+            x_ptr.add_offsets(splat + (row * D_REL + d)),
+            None,
+            None,
+            &[],
+            None,
+            None,
+            None,
+            false,
+        ) * T::load(
+            s_ptr.add_offsets(splat + (head * D_REL + d)),
+            None,
+            None,
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
         ss = ss + v * v;
     }
     let ratio = T::minimum(
-        T::full(&[BLOCK], D::from_f64(THRESHOLD as f64)) / (T::sqrt(ss) + T::full(&[BLOCK], D::from_f64(1e-6))),
+        T::full(&[BLOCK], D::from_f64(THRESHOLD as f64))
+            / (T::sqrt(ss) + T::full(&[BLOCK], D::from_f64(1e-6))),
         T::full(&[BLOCK], D::from_f64(1.0)),
     );
 
@@ -341,16 +359,56 @@ pub fn rel_bias_fused_forward<T: Triton, D: Float, const BLOCK: i32, const D_REL
 
     let mut acc = T::zeros::<D>(&[BLOCK]);
     for d in 0..D_REL {
-        let r = T::load(x_ptr.add_offsets(splat + (row * D_REL + d)), None, None, &[], None, None, None, false)
-            * T::load(s_ptr.add_offsets(splat + (head * D_REL + d)), None, None, &[], None, None, None, false);
-        let p = T::load(p_ptr.add_offsets(dist + d * EXTENT), Some(in_extent), Some(zeros), &[], None, None, None, false);
+        let r = T::load(
+            x_ptr.add_offsets(splat + (row * D_REL + d)),
+            None,
+            None,
+            &[],
+            None,
+            None,
+            None,
+            false,
+        ) * T::load(
+            s_ptr.add_offsets(splat + (head * D_REL + d)),
+            None,
+            None,
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
+        let p = T::load(
+            p_ptr.add_offsets(dist + d * EXTENT),
+            Some(in_extent),
+            Some(zeros),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
         acc = acc + p * r;
     }
-    T::store(bias_ptr.add_offsets(key + row * KV), acc * ratio, Some(on_key), &[], None, None);
+    T::store(
+        bias_ptr.add_offsets(key + row * KV),
+        acc * ratio,
+        Some(on_key),
+        &[],
+        None,
+        None,
+    );
 
     // Keys after the query: pos + 1 + dist, while within the row.
     let later = T::arange(0, BLOCK) + (pos + 1 + bid * BLOCK);
-    T::store(bias_ptr.add_offsets(later + row * KV), zeros, Some(later.lt(KV)), &[], None, None);
+    T::store(
+        bias_ptr.add_offsets(later + row * KV),
+        zeros,
+        Some(later.lt(KV)),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// Graph-level relative bias from `wr_du`'s output `[T, heads * d_rel]` to the
@@ -375,9 +433,24 @@ pub struct RelBiasFusedOp<D: FloatBytes + Send + Sync + 'static> {
 
 impl<D: FloatBytes + Send + Sync + 'static> RelBiasFusedOp<D> {
     /// The fused bias; see [`RelBiasFusedOp`].
-    pub fn new(heads: usize, d_rel: usize, rel_extent: usize, threshold: f32, past: PastLen, width: Option<usize>) -> Self {
+    pub fn new(
+        heads: usize,
+        d_rel: usize,
+        rel_extent: usize,
+        threshold: f32,
+        past: PastLen,
+        width: Option<usize>,
+    ) -> Self {
         assert_eq!(d_rel, 16, "rel bias: only d_rel 16 is compiled");
-        Self { heads, d_rel, rel_extent, threshold, past, width, _phantom: PhantomData }
+        Self {
+            heads,
+            d_rel,
+            rel_extent,
+            threshold,
+            past,
+            width,
+            _phantom: PhantomData,
+        }
     }
 }
 
@@ -434,7 +507,10 @@ impl RuntimeOp for RelBiasFusedRuntimeOp {
     }
 
     fn param_shapes(&self, _input_shapes: &[&[usize]], _output_shape: &[usize]) -> Vec<Vec<usize>> {
-        vec![vec![self.heads, self.d_rel], vec![self.d_rel, self.rel_extent]]
+        vec![
+            vec![self.heads, self.d_rel],
+            vec![self.d_rel, self.rel_extent],
+        ]
     }
 
     fn param_names(&self) -> &'static [&'static str] {
@@ -450,11 +526,19 @@ impl RuntimeOp for RelBiasFusedRuntimeOp {
         _output_row_stride: i32,
         visitor: &mut dyn ArgVisitor,
     ) {
-        assert_eq!(inputs[0].1[1], self.heads * self.d_rel, "rel bias: input width");
+        assert_eq!(
+            inputs[0].1[1],
+            self.heads * self.d_rel,
+            "rel bias: input width"
+        );
         // Keys further back than the extent are not written, which is right only
         // while none exist: the row must be no wider than the extent.
         let kv = self.kv(inputs[0].1[0]);
-        assert!(kv <= self.rel_extent, "rel bias: {kv} keys exceed the {} the fused kernel covers", self.rel_extent);
+        assert!(
+            kv <= self.rel_extent,
+            "rel bias: {kv} keys exceed the {} the fused kernel covers",
+            self.rel_extent
+        );
         visitor.visit_ptr(inputs[0].0);
         visitor.visit_ptr(params[0]);
         visitor.visit_ptr(params[1]);
@@ -467,10 +551,18 @@ impl RuntimeOp for RelBiasFusedRuntimeOp {
     }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
-        [self.rel_extent.div_ceil(BLOCK as usize) as u32, output_shape[0] as u32, 1]
+        [
+            self.rel_extent.div_ceil(BLOCK as usize) as u32,
+            output_shape[0] as u32,
+            1,
+        ]
     }
 
-    fn compute_concrete_output_shape(&self, input_shapes: &[&[usize]], _resolved: &[usize]) -> Vec<usize> {
+    fn compute_concrete_output_shape(
+        &self,
+        input_shapes: &[&[usize]],
+        _resolved: &[usize],
+    ) -> Vec<usize> {
         let t = input_shapes[0][0];
         vec![t * self.heads, self.kv(t)]
     }

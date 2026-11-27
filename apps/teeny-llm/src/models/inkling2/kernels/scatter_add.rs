@@ -174,7 +174,11 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for ExpertScatterAddRuntim
     }
 
     /// One row per token: the input's (token, slot) rows divided by `top_k`.
-    fn compute_concrete_output_shape(&self, input_shapes: &[&[usize]], _resolved: &[usize]) -> Vec<usize> {
+    fn compute_concrete_output_shape(
+        &self,
+        input_shapes: &[&[usize]],
+        _resolved: &[usize],
+    ) -> Vec<usize> {
         vec![input_shapes[0][0] / self.top_k, self.n]
     }
 

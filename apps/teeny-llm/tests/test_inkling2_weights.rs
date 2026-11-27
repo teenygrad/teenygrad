@@ -451,16 +451,19 @@ fn layer_slots(layer: usize, nvfp4: bool, dynamic: bool, looped: bool) -> Vec<St
 /// scale and both halves of the per-expert one, which the loader multiplies.
 fn needed_tensors(src: &Source) -> Vec<String> {
     match src {
-        Source::Tensor(n) | Source::Transposed(n, _) | Source::InterleavedWeight(n) => vec![n.clone()],
+        Source::Tensor(n) | Source::Transposed(n, _) | Source::InterleavedWeight(n) => {
+            vec![n.clone()]
+        }
         Source::ExpertScale(p) => vec![format!("{p}_amax"), format!("{p}_outer_scale_denominator")],
         Source::FoldedScale(p) | Source::InterleavedScale(p) | Source::ByteScale(p) => vec![
             format!("{p}_scale"),
             format!("{p}_amax"),
             format!("{p}_outer_scale_denominator"),
         ],
-        Source::PackedBf16(inner) | Source::LanesBf16(inner) | Source::LanesI8(inner) | Source::ImeI8(inner) => {
-            needed_tensors(inner)
-        }
+        Source::PackedBf16(inner)
+        | Source::LanesBf16(inner)
+        | Source::LanesI8(inner)
+        | Source::ImeI8(inner) => needed_tensors(inner),
     }
 }
 
@@ -556,8 +559,7 @@ fn test_the_real_checkpoint_satisfies_a_whole_plan() {
         let nvfp4 = quant_of(&cfg, step.layer) == Quant::Nvfp4;
         let slots = layer_slots(step.layer, nvfp4, dynamic, step.pass.is_some());
         slots_checked += slots.len();
-        for (slot, name) in teeny_llm::models::inkling2::load::missing(&ck, &slots, step.layer)
-        {
+        for (slot, name) in teeny_llm::models::inkling2::load::missing(&ck, &slots, step.layer) {
             absent.push(format!("layer {} slot {slot} -> {name}", step.layer));
         }
     }

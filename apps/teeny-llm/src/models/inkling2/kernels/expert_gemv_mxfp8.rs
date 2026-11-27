@@ -186,10 +186,28 @@ pub struct ExpertGemvMxfp8Op<D: FloatBytes + Send + Sync + 'static> {
 impl<D: FloatBytes + Send + Sync + 'static> ExpertGemvMxfp8Op<D> {
     /// A projection over `experts` planes of `[n, k]`, with `top_k` slots per token.
     pub fn new(experts: usize, n: usize, k: usize, top_k: usize) -> Self {
-        assert!(top_k > 0 && top_k <= experts, "mxfp8 gemv: top_k out of range");
-        assert_eq!(n % ROWS, 0, "mxfp8 gemv: {n} rows are not a multiple of {ROWS}");
-        assert_eq!(k % (4 * SBLOCK), 0, "mxfp8 gemv: {k} is not a multiple of {}", 4 * SBLOCK);
-        Self { experts, n, k, top_k, _phantom: PhantomData }
+        assert!(
+            top_k > 0 && top_k <= experts,
+            "mxfp8 gemv: top_k out of range"
+        );
+        assert_eq!(
+            n % ROWS,
+            0,
+            "mxfp8 gemv: {n} rows are not a multiple of {ROWS}"
+        );
+        assert_eq!(
+            k % (4 * SBLOCK),
+            0,
+            "mxfp8 gemv: {k} is not a multiple of {}",
+            4 * SBLOCK
+        );
+        Self {
+            experts,
+            n,
+            k,
+            top_k,
+            _phantom: PhantomData,
+        }
     }
 }
 
@@ -239,7 +257,11 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for ExpertGemvMxfp8Runtime
 
     /// One row per (token, slot): `top_k` times the input's rows, which a graph that
     /// leaves the token count unknown cannot say until the rows are known.
-    fn compute_concrete_output_shape(&self, input_shapes: &[&[usize]], _resolved: &[usize]) -> Vec<usize> {
+    fn compute_concrete_output_shape(
+        &self,
+        input_shapes: &[&[usize]],
+        _resolved: &[usize],
+    ) -> Vec<usize> {
         vec![input_shapes[0][0] * self.top_k, self.n]
     }
 

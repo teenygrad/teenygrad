@@ -44,9 +44,9 @@
 //! for it are re-packed by [`slot_ids`], which is the one place the two gathers do
 //! not simply chain.
 
+use super::naming::{RecordNamed, name_scope};
 use teeny_core::dtype::FloatBytes;
 use teeny_core::graph::{CustomData, Op, Shape, SymTensor};
-use teeny_core::name_scope::name_scope;
 
 use super::config::Inkling2TextConfig;
 use super::kernels::{
@@ -112,13 +112,25 @@ fn linear<D: FloatBytes + Send + Sync + 'static>(x: &SymTensor, k: usize, n: usi
     let ime = int8 && std::env::var("INKLING2_IME").is_ok_and(|v| v == "1");
     if ime && n.is_multiple_of(ime::TILE) && k.is_multiple_of(ime::K_MULTIPLE) {
         let packed = ime_packed::<D>(x, k);
-        packed.record_custom(CustomData::new(ime::LinearImeOp::<D>::new(k, n)), &[x], None)
+        packed.record_named(
+            CustomData::new(ime::LinearImeOp::<D>::new(k, n)),
+            &[x],
+            None,
+        )
     } else if int8 && n.is_multiple_of(I8_LANES) && k.is_multiple_of(4) {
-        x.record_custom(CustomData::new(LinearLanesI8Op::<D>::new(k, n)), &[], None)
+        x.record_named(CustomData::new(LinearLanesI8Op::<D>::new(k, n)), &[], None)
     } else if n.is_multiple_of(LANES) {
-        x.record_custom(CustomData::new(LinearLanesBf16Op::<D>::new(k, n)), &[], None)
+        x.record_named(
+            CustomData::new(LinearLanesBf16Op::<D>::new(k, n)),
+            &[],
+            None,
+        )
     } else {
-        x.record_custom(CustomData::new(Linear4Bf16Op::<D>::new(k, n, 16)), &[], None)
+        x.record_named(
+            CustomData::new(Linear4Bf16Op::<D>::new(k, n, 16)),
+            &[],
+            None,
+        )
     }
 }
 
@@ -134,13 +146,16 @@ thread_local! {
 
 /// `x` quantised and packed for [`ime::LinearImeOp`], once per tensor.
 fn ime_packed<D: FloatBytes + Send + Sync + 'static>(x: &SymTensor, k: usize) -> SymTensor {
-    let key = (std::rc::Rc::as_ptr(&x.graph) as *const () as usize, x.node_id);
+    let key = (
+        std::rc::Rc::as_ptr(&x.graph) as *const () as usize,
+        x.node_id,
+    );
     if let Some(p) = IME_PACKED.with(|c| c.borrow().get(&key).cloned()) {
         return p;
     }
     let packed = {
         let _g = name_scope("quant");
-        x.record_custom(CustomData::new(ime::QuantPackI8Op::<D>::new(k)), &[], None)
+        x.record_named(CustomData::new(ime::QuantPackI8Op::<D>::new(k)), &[], None)
     };
     IME_PACKED.with(|c| c.borrow_mut().insert(key, packed.clone()));
     packed
@@ -178,7 +193,7 @@ pub fn build_moe<D: FloatBytes + Send + Sync + 'static>(
     let _m = name_scope("mlp");
     // The down projection needs one id per (token, slot) row; the re-pack runs on the
     // device so the layer stays a single graph.
-    let ids = &routed.record_custom(
+    let ids = &routed.record_named(
         CustomData::new(SlotIdsOp::<D>::new(cfg.num_experts_per_tok)),
         &[],
         None,
@@ -189,7 +204,7 @@ pub fn build_moe<D: FloatBytes + Send + Sync + 'static>(
     // `quant` picks the decoder; `None` keeps the plain f32 gather, which the tests
     // use and which no shipped layer needs.
     let gather = |n: usize, kk: usize, slots: usize, x: &SymTensor, r: &SymTensor| match quant {
-        None => x.record_custom(
+        None => x.record_named(
             CustomData::new(ExpertGatherOp::<D>::new(e, n, kk, slots)),
             &[r],
             None,
@@ -197,15 +212,15 @@ pub fn build_moe<D: FloatBytes + Send + Sync + 'static>(
         // Integer arithmetic: the activations are quantised to int8 per 16-element
         // block first, and the weights are exact int8 inside the projection.
         Some(Quant::Nvfp4) => x
-            .record_custom(CustomData::new(QuantRowsQ8Op::<D>::new(kk)), &[], None)
-            .record_custom(
+            .record_named(CustomData::new(QuantRowsQ8Op::<D>::new(kk)), &[], None)
+            .record_named(
                 CustomData::new(ExpertGemvNvfp4Op::<D>::new(e, n, kk, slots)),
                 &[r],
                 None,
             ),
         // Rows as lanes, like the NVFP4 projection, in f32: an E4M3 value is not an
         // integer at any useful scale.
-        Some(Quant::Mxfp8) => x.record_custom(
+        Some(Quant::Mxfp8) => x.record_named(
             CustomData::new(ExpertGemvMxfp8Op::<D>::new(e, n, kk, slots)),
             &[r],
             None,
@@ -216,7 +231,7 @@ pub fn build_moe<D: FloatBytes + Send + Sync + 'static>(
         let _g = name_scope("experts");
         gather(2 * inter, hid, k, x, routed)
     };
-    let act = gate_up.record_custom(
+    let act = gate_up.record_named(
         CustomData::new(SwigluOp::<D>::new(
             inter,
             cfg.mlp_gate_softcap as f32,
@@ -229,7 +244,7 @@ pub fn build_moe<D: FloatBytes + Send + Sync + 'static>(
         let _g = name_scope("experts_down");
         gather(hid, inter, 1, &act, ids)
     };
-    down.record_custom(
+    down.record_named(
         CustomData::new(ExpertScatterAddOp::<D>::new(hid, k)),
         &[routed],
         None,
@@ -251,7 +266,7 @@ pub fn build_router<D: FloatBytes + Send + Sync + 'static>(
     // `bias`, matching the checkpoint's mlp.gate.weight and mlp.gate.bias.
     let _g = name_scope("gate");
     let logits = linear::<D>(x, cfg.hidden_size, cfg.n_routed_experts);
-    logits.record_custom(
+    logits.record_named(
         CustomData::new(TopKRouterOp::<D>::new(
             cfg.n_routed_experts,
             cfg.num_experts_per_tok,
@@ -299,7 +314,7 @@ pub fn build_q_proj<D: FloatBytes + Send + Sync + 'static>(
         linear::<D>(x, cfg.hidden_size, nh * hd)
     };
     let _g = name_scope("q_l2_clip");
-    q.record_custom(
+    q.record_named(
         CustomData::new(ScaledL2ClipOp::<D>::new(
             nh,
             hd,
@@ -335,7 +350,10 @@ pub fn build_kv_proj<D: FloatBytes + Send + Sync + 'static>(
     // Keys end in an unscaled L2 clip, values in an unweighted RMS norm; both run in
     // the convolution's own program.
     let post = if is_key {
-        Post::L2Clip { head_dim: hd, threshold: cfg.qk_l2_clip_threshold as f32 }
+        Post::L2Clip {
+            head_dim: hd,
+            threshold: cfg.qk_l2_clip_threshold as f32,
+        }
     } else {
         Post::Rms { head_dim: hd }
     };
@@ -348,14 +366,23 @@ pub fn build_kv_proj<D: FloatBytes + Send + Sync + 'static>(
                     let _w = name_scope("weight_proj");
                     linear::<D>(src, cfg.hidden_size, nkv * cfg.sconv_kernel_size)
                 };
-                hist.record_custom(
-                    CustomData::new(DynSconvOp::<D>::with_post(nkv * hd, nkv, cfg.sconv_kernel_size, post)),
+                hist.record_named(
+                    CustomData::new(DynSconvOp::<D>::with_post(
+                        nkv * hd,
+                        nkv,
+                        cfg.sconv_kernel_size,
+                        post,
+                    )),
                     &[&proj, &taps],
                     None,
                 )
             }
-            None => hist.record_custom(
-                CustomData::new(SconvOp::<D>::with_post(nkv * hd, cfg.sconv_kernel_size, post)),
+            None => hist.record_named(
+                CustomData::new(SconvOp::<D>::with_post(
+                    nkv * hd,
+                    cfg.sconv_kernel_size,
+                    post,
+                )),
                 &[&proj],
                 None,
             ),
@@ -381,7 +408,7 @@ pub fn build_o_proj<D: FloatBytes + Send + Sync + 'static>(
         let _g = name_scope("gate_attn");
         linear::<D>(x, cfg.hidden_size, nh * hd)
     };
-    let gated = attn.record_custom(CustomData::new(GatedMulOp::<D>::default()), &[&gate], None);
+    let gated = attn.record_named(CustomData::new(GatedMulOp::<D>::default()), &[&gate], None);
     let _g = name_scope("wo_ud");
     linear::<D>(&gated, nh * hd, cfg.hidden_size)
 }
@@ -393,7 +420,7 @@ pub fn build_norm<D: FloatBytes + Send + Sync + 'static>(
     width: usize,
 ) -> SymTensor {
     let _g = name_scope(name);
-    x.record_custom(CustomData::new(RmsNormOp::<D>::new(width)), &[], None)
+    x.record_named(CustomData::new(RmsNormOp::<D>::new(width)), &[], None)
 }
 
 /// Records the relative position bias: the linear, then the scaled clip, profile
@@ -412,7 +439,7 @@ pub fn build_rel_bias<D: FloatBytes + Send + Sync + 'static>(
     // Clip, projection and gather in one kernel; the projection is read in the
     // checkpoint's own [d_rel, rel_extent] layout.
     let _g = name_scope("rel_l2_clip");
-    rel.record_custom(
+    rel.record_named(
         CustomData::new(RelBiasFusedOp::<D>::new(
             nh,
             dr,
@@ -473,7 +500,7 @@ pub fn build_attention<D: FloatBytes + Send + Sync + 'static>(
         window,
         scale: (hd as f32).powf(-0.5),
     };
-    let attn = q.record_custom(
+    let attn = q.record_named(
         CustomData::new(SinkAttentionOp::<D>::new(spec, past_len)),
         &[&k, &v, k_cache, v_cache, &bias, &sinks],
         None,
@@ -533,7 +560,7 @@ pub fn build_attn_res<D: FloatBytes + Send + Sync + 'static>(
     // The reference norms the stack once; normalising the committed states and the
     // partial separately is the same, since the norm is per row.
     let norm = |x: &SymTensor| {
-        x.record_custom(
+        x.record_named(
             CustomData::new(UnweightedRmsNormOp::<D>::new(cfg.hidden_size)),
             &[],
             None,
@@ -548,7 +575,7 @@ pub fn build_attn_res<D: FloatBytes + Send + Sync + 'static>(
     (0..queries)
         .map(|q| {
             let _g = name_scope(format!("{name}_{q}"));
-            normed.record_custom(
+            normed.record_named(
                 CustomData::new(BlockAttnOp::<D>::new(n_states, cfg.hidden_size, queries, q)),
                 &[&normed_partial],
                 None,
@@ -590,7 +617,7 @@ pub fn build_messages<D: FloatBytes + Send + Sync + 'static>(
     let hid = cfg.hidden_size;
     let rows = 2 * (cfg.loop_config.core_end - cfg.loop_config.core_start);
     let norm = |x: &SymTensor| {
-        x.record_custom(
+        x.record_named(
             CustomData::new(UnweightedRmsNormOp::<D>::new(hid)),
             &[],
             None,
@@ -613,7 +640,7 @@ pub fn build_messages<D: FloatBytes + Send + Sync + 'static>(
             // The scope names the parameter slot, so each op gets its own; the name
             // carries which checkpoint tensor the loader must put there.
             let _g = name_scope(format!("{tensor}_{loop_layer}_{i}"));
-            normed.record_custom(
+            normed.record_named(
                 CustomData::new(BlockAttnOp::<D>::new(n_states, hid, rows, *row)),
                 &[&normed_partial],
                 None,
@@ -674,12 +701,12 @@ pub fn build_controller<D: FloatBytes + Send + Sync + 'static>(
     // Two fused kernels rather than nine: see `kernels::controller`. Their weight
     // slots are `down.weight_bf16`, `forget.weight_bf16` and `gain.weight_bf16` under
     // this scope, the same checkpoint tensors the separate linears read.
-    let g = hidden.record_custom(
+    let g = hidden.record_named(
         CustomData::new(ControllerDownOp::<D>::new(hid, rank)),
         &[message],
         None,
     );
-    hidden.record_custom(
+    hidden.record_named(
         CustomData::new(ControllerApplyOp::<D>::new(hid, rank)),
         &[message, &g],
         None,
@@ -819,8 +846,8 @@ pub fn build_layer<D: FloatBytes + Send + Sync + 'static>(
     // the same edge twice and it would arrive with three, so the second gate is a
     // separate node: an identity scale, one elementwise pass over `hidden` floats.
     let lerp = |a: &SymTensor, b: &SymTensor, s: &SymTensor| {
-        let s2 = s.record_custom(CustomData::new(ScaleOp::<D>::new(1.0)), &[], None);
-        a.record_custom(
+        let s2 = s.record_named(CustomData::new(ScaleOp::<D>::new(1.0)), &[], None);
+        a.record_named(
             CustomData::new(MessageMixOp::<D>::default()),
             &[b, s, &s2],
             None,
@@ -870,7 +897,7 @@ pub fn build_layer<D: FloatBytes + Send + Sync + 'static>(
     );
     let h = {
         let _g = name_scope("attn_sconv");
-        inputs.attn_hist.record_custom(
+        inputs.attn_hist.record_named(
             CustomData::new(SconvOp::<D>::new(hid, cfg.sconv_kernel_size)),
             &[&attn.out],
             None,
@@ -906,7 +933,7 @@ pub fn build_layer<D: FloatBytes + Send + Sync + 'static>(
     let moe = build_moe::<D>(cfg, &m, &routed, Some(super::runner::quant_of(cfg, layer)));
     let m_conv = {
         let _g = name_scope("mlp_sconv");
-        inputs.mlp_hist.record_custom(
+        inputs.mlp_hist.record_named(
             CustomData::new(SconvOp::<D>::new(hid, cfg.sconv_kernel_size)),
             &[&moe],
             None,
@@ -950,7 +977,7 @@ pub fn build_embed<D: FloatBytes + Send + Sync + 'static>(
 ) -> SymTensor {
     let e = {
         let _g = name_scope("embed");
-        ids.record_custom(
+        ids.record_named(
             CustomData::new(EmbedOp::<D>::new(cfg.vocab_size, cfg.hidden_size)),
             &[],
             None,
@@ -984,14 +1011,14 @@ pub fn build_head<D: FloatBytes + Send + Sync + 'static>(
         linear::<D>(&x, cfg.hidden_size, cfg.vocab_size)
     };
     // muP: the trained width multiplier divides the logits before the cap.
-    let scaled = logits.record_custom(
+    let scaled = logits.record_named(
         CustomData::new(ScaleOp::<D>::new(1.0 / mup_width_multiplier as f32)),
         &[],
         None,
     );
     match cfg.final_logit_softcapping {
         Some(cap) => {
-            scaled.record_custom(CustomData::new(SoftcapOp::<D>::new(cap as f32)), &[], None)
+            scaled.record_named(CustomData::new(SoftcapOp::<D>::new(cap as f32)), &[], None)
         }
         None => scaled,
     }

@@ -98,8 +98,14 @@ pub struct QuantPackI8Op<D: FloatBytes + Send + Sync + 'static> {
 impl<D: FloatBytes + Send + Sync + 'static> QuantPackI8Op<D> {
     /// Creates the op.
     pub fn new(k: usize) -> Self {
-        assert!(k.is_multiple_of(K_MULTIPLE), "quant pack: {k} is not a multiple of {K_MULTIPLE}");
-        Self { k, _phantom: PhantomData }
+        assert!(
+            k.is_multiple_of(K_MULTIPLE),
+            "quant pack: {k} is not a multiple of {K_MULTIPLE}"
+        );
+        Self {
+            k,
+            _phantom: PhantomData,
+        }
     }
 }
 
@@ -140,7 +146,11 @@ impl RuntimeOp for QuantPackI8RuntimeOp {
         Some(super::native::library("quant_pack_i8").unwrap_or_else(|e| panic!("{e:#}")))
     }
 
-    fn compute_concrete_output_shape(&self, input_shapes: &[&[usize]], _resolved: &[usize]) -> Vec<usize> {
+    fn compute_concrete_output_shape(
+        &self,
+        input_shapes: &[&[usize]],
+        _resolved: &[usize],
+    ) -> Vec<usize> {
         vec![padded(input_shapes[0][0]), self.k / 4 + 1]
     }
 
@@ -189,9 +199,19 @@ pub struct LinearImeOp<D: FloatBytes + Send + Sync + 'static> {
 impl<D: FloatBytes + Send + Sync + 'static> LinearImeOp<D> {
     /// Creates the op.
     pub fn new(k: usize, n: usize) -> Self {
-        assert!(n.is_multiple_of(TILE), "linear ime: {n} outputs are not a multiple of {TILE}");
-        assert!(k.is_multiple_of(K_MULTIPLE), "linear ime: {k} is not a multiple of {K_MULTIPLE}");
-        Self { k, n, _phantom: PhantomData }
+        assert!(
+            n.is_multiple_of(TILE),
+            "linear ime: {n} outputs are not a multiple of {TILE}"
+        );
+        assert!(
+            k.is_multiple_of(K_MULTIPLE),
+            "linear ime: {k} is not a multiple of {K_MULTIPLE}"
+        );
+        Self {
+            k,
+            n,
+            _phantom: PhantomData,
+        }
     }
 }
 
@@ -213,7 +233,10 @@ impl<D: FloatBytes + Send + Sync + 'static> CustomOp for LinearImeOp<D> {
             "linear_ime".to_string(),
             "// native: native/linear_ime.c".to_string(),
             "linear_ime_a100_entry_point".to_string(),
-            Arc::new(LinearImeRuntimeOp { k: self.k, n: self.n }),
+            Arc::new(LinearImeRuntimeOp {
+                k: self.k,
+                n: self.n,
+            }),
         ))
     }
 }
@@ -233,7 +256,11 @@ impl RuntimeOp for LinearImeRuntimeOp {
         Some(super::native::library("linear_ime").unwrap_or_else(|e| panic!("{e:#}")))
     }
 
-    fn compute_concrete_output_shape(&self, input_shapes: &[&[usize]], _resolved: &[usize]) -> Vec<usize> {
+    fn compute_concrete_output_shape(
+        &self,
+        input_shapes: &[&[usize]],
+        _resolved: &[usize],
+    ) -> Vec<usize> {
         vec![input_shapes[1][0], self.n]
     }
 
@@ -255,9 +282,17 @@ impl RuntimeOp for LinearImeRuntimeOp {
         visitor: &mut dyn ArgVisitor,
     ) {
         let m_pad = inputs[0].1[0];
-        assert_eq!(inputs[0].1[1], self.k / 4 + 1, "linear ime: packed activation width");
+        assert_eq!(
+            inputs[0].1[1],
+            self.k / 4 + 1,
+            "linear ime: packed activation width"
+        );
         assert_eq!(inputs[1].1[1], self.k, "linear ime: input width");
-        assert!(m_pad >= output_shape[0], "linear ime: {m_pad} packed rows for {} tokens", output_shape[0]);
+        assert!(
+            m_pad >= output_shape[0],
+            "linear ime: {m_pad} packed rows for {} tokens",
+            output_shape[0]
+        );
         visitor.visit_ptr(inputs[0].0);
         visitor.visit_ptr(params[0]);
         visitor.visit_ptr(output);
@@ -282,9 +317,14 @@ mod tests {
     #[test]
     fn packing_puts_each_row_chunk_in_its_tile_slot() {
         let (n, k) = (16usize, 64usize);
-        let w: Vec<f32> = (0..n * k).map(|i| ((i % 251) as f32 - 125.0) / 125.0).collect();
+        let w: Vec<f32> = (0..n * k)
+            .map(|i| ((i % 251) as f32 - 125.0) / 125.0)
+            .collect();
         let buf = quantize_ime_i8(&w, n, k).unwrap();
-        let bytes: Vec<u8> = buf[..n * k / 4].iter().flat_map(|f| f.to_bits().to_le_bytes()).collect();
+        let bytes: Vec<u8> = buf[..n * k / 4]
+            .iter()
+            .flat_map(|f| f.to_bits().to_le_bytes())
+            .collect();
         let scales = &buf[n * k / 4..];
         let chunks = k / CHUNK;
         for r in 0..n {

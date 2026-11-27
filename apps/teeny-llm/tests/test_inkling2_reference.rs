@@ -40,7 +40,6 @@ use std::rc::Rc;
 
 use teeny_core::graph::{CustomData, CustomOp, DtypeRepr, Graph, Op, SymTensor};
 use teeny_core::model::LoweringMode;
-use teeny_core::name_scope::name_scope;
 use teeny_kernels::graph::TritonLowering;
 use teeny_llm::models::inkling2::kernels::{
     attention::PastLen,
@@ -55,6 +54,7 @@ use teeny_llm::models::inkling2::kernels::{
     softcap::SoftcapOp,
     swiglu::SwigluOp,
 };
+use teeny_llm::models::inkling2::naming::{RecordNamed, name_scope};
 use teeny_test::model::{RuntimeModel, runtime};
 
 // ---------------------------------------------------------------------------
@@ -289,7 +289,7 @@ impl OneOp {
     ) -> Vec<f32> {
         let out = {
             let _scope = name_scope("op");
-            self.first.record_custom(CustomData::new(op), others, None)
+            self.first.record_named(CustomData::new(op), others, None)
         };
         let graph: &Graph = &self.graph.borrow();
         let lowering = TritonLowering::new();

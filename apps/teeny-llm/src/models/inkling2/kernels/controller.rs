@@ -79,33 +79,87 @@ pub fn controller_down_forward<T: Triton, D: Float, const BLOCK: i32>(
     for i in 0..n_chunks {
         let j = offs + i * BLOCK;
         let jm = j.lt(HID);
-        let h = T::load(h_ptr.add_offsets(j + t * HID), Some(jm), Some(zeros), &[], None, None, None, false);
-        let m = T::load(m_ptr.add_offsets(j + t * HID), Some(jm), Some(zeros), &[], None, None, None, false);
+        let h = T::load(
+            h_ptr.add_offsets(j + t * HID),
+            Some(jm),
+            Some(zeros),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
+        let m = T::load(
+            m_ptr.add_offsets(j + t * HID),
+            Some(jm),
+            Some(zeros),
+            &[],
+            None,
+            None,
+            None,
+            false,
+        );
         sh = sh + h * h;
         sm = sm + m * m;
         let w0 = T::cast::<D, i32>(
-            T::load(w_ptr.add_offsets(j + r * HID), Some(jm), Some(zeros), &[], None, None, None, false),
+            T::load(
+                w_ptr.add_offsets(j + r * HID),
+                Some(jm),
+                Some(zeros),
+                &[],
+                None,
+                None,
+                None,
+                false,
+            ),
             None,
             true,
         );
         h0 = h0 + h * T::cast::<i32, D>(w0 << 16, None, true);
         m0 = m0 + m * T::cast::<i32, D>(w0 & -65536, None, true);
         let w1 = T::cast::<D, i32>(
-            T::load(w_ptr.add_offsets(j + (r + 1) * HID), Some(jm), Some(zeros), &[], None, None, None, false),
+            T::load(
+                w_ptr.add_offsets(j + (r + 1) * HID),
+                Some(jm),
+                Some(zeros),
+                &[],
+                None,
+                None,
+                None,
+                false,
+            ),
             None,
             true,
         );
         h1 = h1 + h * T::cast::<i32, D>(w1 << 16, None, true);
         m1 = m1 + m * T::cast::<i32, D>(w1 & -65536, None, true);
         let w2 = T::cast::<D, i32>(
-            T::load(w_ptr.add_offsets(j + (r + 2) * HID), Some(jm), Some(zeros), &[], None, None, None, false),
+            T::load(
+                w_ptr.add_offsets(j + (r + 2) * HID),
+                Some(jm),
+                Some(zeros),
+                &[],
+                None,
+                None,
+                None,
+                false,
+            ),
             None,
             true,
         );
         h2 = h2 + h * T::cast::<i32, D>(w2 << 16, None, true);
         m2 = m2 + m * T::cast::<i32, D>(w2 & -65536, None, true);
         let w3 = T::cast::<D, i32>(
-            T::load(w_ptr.add_offsets(j + (r + 3) * HID), Some(jm), Some(zeros), &[], None, None, None, false),
+            T::load(
+                w_ptr.add_offsets(j + (r + 3) * HID),
+                Some(jm),
+                Some(zeros),
+                &[],
+                None,
+                None,
+                None,
+                false,
+            ),
             None,
             true,
         );
@@ -209,17 +263,39 @@ pub fn controller_apply_forward<T: Triton, D: Float, const BLOCK: i32>(
             false,
         );
         let wf = T::cast::<D, i32>(
-            T::load(wf_ptr.add_offsets(c * half + j), Some(cm), Some(zeros), &[], None, None, None, false),
+            T::load(
+                wf_ptr.add_offsets(c * half + j),
+                Some(cm),
+                Some(zeros),
+                &[],
+                None,
+                None,
+                None,
+                false,
+            ),
             None,
             true,
         );
-        f = f + T::cast::<i32, D>(wf << 16, None, true) * g0 + T::cast::<i32, D>(wf & -65536, None, true) * g1;
+        f = f
+            + T::cast::<i32, D>(wf << 16, None, true) * g0
+            + T::cast::<i32, D>(wf & -65536, None, true) * g1;
         let wg = T::cast::<D, i32>(
-            T::load(wg_ptr.add_offsets(c * half + j), Some(cm), Some(zeros), &[], None, None, None, false),
+            T::load(
+                wg_ptr.add_offsets(c * half + j),
+                Some(cm),
+                Some(zeros),
+                &[],
+                None,
+                None,
+                None,
+                false,
+            ),
             None,
             true,
         );
-        a = a + T::cast::<i32, D>(wg << 16, None, true) * g0 + T::cast::<i32, D>(wg & -65536, None, true) * g1;
+        a = a
+            + T::cast::<i32, D>(wg << 16, None, true) * g0
+            + T::cast::<i32, D>(wg & -65536, None, true) * g1;
     }
 
     // tanh(x) = 2 / (1 + exp(-2x)) - 1, with exp(-2x) in lane as softcap computes
@@ -260,8 +336,26 @@ pub fn controller_apply_forward<T: Triton, D: Float, const BLOCK: i32>(
     let ea = pa * T::cast::<i32, D>((na + 127) * 8_388_608, None, true);
     let ta = two / (one + ea) - one;
 
-    let h = T::load(h_ptr.add_offsets(c + t * HID), Some(cm), Some(zeros), &[], None, None, None, false);
-    let m = T::load(m_ptr.add_offsets(c + t * HID), Some(cm), Some(zeros), &[], None, None, None, false);
+    let h = T::load(
+        h_ptr.add_offsets(c + t * HID),
+        Some(cm),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
+    let m = T::load(
+        m_ptr.add_offsets(c + t * HID),
+        Some(cm),
+        Some(zeros),
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
     T::store(
         y_ptr.add_offsets(c + t * HID),
         (one - tf) * h + ta * m,
@@ -306,8 +400,15 @@ pub struct ControllerDownOp<D: FloatBytes + Send + Sync + 'static> {
 impl<D: FloatBytes + Send + Sync + 'static> ControllerDownOp<D> {
     /// Creates the op.
     pub fn new(hid: usize, rank: usize) -> Self {
-        assert!(rank.is_multiple_of(4), "controller down: rank {rank} is not a multiple of 4");
-        Self { hid, rank, _phantom: PhantomData }
+        assert!(
+            rank.is_multiple_of(4),
+            "controller down: rank {rank} is not a multiple of 4"
+        );
+        Self {
+            hid,
+            rank,
+            _phantom: PhantomData,
+        }
     }
 }
 
@@ -330,7 +431,11 @@ impl<D: FloatBytes + Send + Sync + 'static> CustomOp for ControllerDownOp<D> {
             "controller_down_forward".to_string(),
             kernel.source,
             "entry_point".to_string(),
-            Arc::new(ControllerDownRuntimeOp::<D> { hid: self.hid, rank: self.rank, _phantom: PhantomData }),
+            Arc::new(ControllerDownRuntimeOp::<D> {
+                hid: self.hid,
+                rank: self.rank,
+                _phantom: PhantomData,
+            }),
         ))
     }
 }
@@ -392,8 +497,15 @@ pub struct ControllerApplyOp<D: FloatBytes + Send + Sync + 'static> {
 impl<D: FloatBytes + Send + Sync + 'static> ControllerApplyOp<D> {
     /// Creates the op.
     pub fn new(hid: usize, rank: usize) -> Self {
-        assert!(rank.is_multiple_of(2), "controller apply: rank {rank} is odd");
-        Self { hid, rank, _phantom: PhantomData }
+        assert!(
+            rank.is_multiple_of(2),
+            "controller apply: rank {rank} is odd"
+        );
+        Self {
+            hid,
+            rank,
+            _phantom: PhantomData,
+        }
     }
 }
 
@@ -416,7 +528,11 @@ impl<D: FloatBytes + Send + Sync + 'static> CustomOp for ControllerApplyOp<D> {
             "controller_apply_forward".to_string(),
             kernel.source,
             "entry_point".to_string(),
-            Arc::new(ControllerApplyRuntimeOp::<D> { hid: self.hid, rank: self.rank, _phantom: PhantomData }),
+            Arc::new(ControllerApplyRuntimeOp::<D> {
+                hid: self.hid,
+                rank: self.rank,
+                _phantom: PhantomData,
+            }),
         ))
     }
 }
@@ -463,6 +579,10 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for ControllerApplyRuntime
     }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
-        [self.hid.div_ceil(APPLY_BLOCK as usize) as u32, output_shape[0] as u32, 1]
+        [
+            self.hid.div_ceil(APPLY_BLOCK as usize) as u32,
+            output_shape[0] as u32,
+            1,
+        ]
     }
 }

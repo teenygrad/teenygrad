@@ -157,12 +157,29 @@ pub fn dyn_sconv_forward<T: Triton, D: Float, const BLOCK: i32, const K: i32, co
                 / (T::sqrt(ss) + T::full(&[BLOCK], D::from_f64(1e-6))),
             T::full(&[BLOCK], D::from_f64(1.0)),
         );
-        T::store(y_ptr.add_offsets(offs + t * C), y * ratio, Some(m), &[], None, None);
+        T::store(
+            y_ptr.add_offsets(offs + t * C),
+            y * ratio,
+            Some(m),
+            &[],
+            None,
+            None,
+        );
     }
     if POST == 2 {
         let ss = T::sum(y * y, Some(0), true);
-        let inv = T::rsqrt(ss / T::full(&[BLOCK], D::from_f64(BLOCK as f64)) + T::full(&[BLOCK], D::from_f64(1e-6)));
-        T::store(y_ptr.add_offsets(offs + t * C), y * inv, Some(m), &[], None, None);
+        let inv = T::rsqrt(
+            ss / T::full(&[BLOCK], D::from_f64(BLOCK as f64))
+                + T::full(&[BLOCK], D::from_f64(1e-6)),
+        );
+        T::store(
+            y_ptr.add_offsets(offs + t * C),
+            y * inv,
+            Some(m),
+            &[],
+            None,
+            None,
+        );
     }
 }
 

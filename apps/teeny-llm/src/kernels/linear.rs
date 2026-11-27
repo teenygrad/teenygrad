@@ -220,7 +220,16 @@ pub fn linear4_bf16_forward<T: Triton, D: Float, const BLOCK: i32>(
             false,
         );
         let w0 = T::cast::<D, i32>(
-            T::load(w_ptr.add_offsets(j + n * half_k), Some(jm), Some(zeros), &[], None, None, None, false),
+            T::load(
+                w_ptr.add_offsets(j + n * half_k),
+                Some(jm),
+                Some(zeros),
+                &[],
+                None,
+                None,
+                None,
+                false,
+            ),
             None,
             true,
         );
@@ -228,7 +237,16 @@ pub fn linear4_bf16_forward<T: Triton, D: Float, const BLOCK: i32>(
             + xlo * T::cast::<i32, D>(w0 << 16, None, true)
             + xhi * T::cast::<i32, D>(w0 & -65536, None, true);
         let w1 = T::cast::<D, i32>(
-            T::load(w_ptr.add_offsets(j + (n + 1) * half_k), Some(jm), Some(zeros), &[], None, None, None, false),
+            T::load(
+                w_ptr.add_offsets(j + (n + 1) * half_k),
+                Some(jm),
+                Some(zeros),
+                &[],
+                None,
+                None,
+                None,
+                false,
+            ),
             None,
             true,
         );
@@ -236,7 +254,16 @@ pub fn linear4_bf16_forward<T: Triton, D: Float, const BLOCK: i32>(
             + xlo * T::cast::<i32, D>(w1 << 16, None, true)
             + xhi * T::cast::<i32, D>(w1 & -65536, None, true);
         let w2 = T::cast::<D, i32>(
-            T::load(w_ptr.add_offsets(j + (n + 2) * half_k), Some(jm), Some(zeros), &[], None, None, None, false),
+            T::load(
+                w_ptr.add_offsets(j + (n + 2) * half_k),
+                Some(jm),
+                Some(zeros),
+                &[],
+                None,
+                None,
+                None,
+                false,
+            ),
             None,
             true,
         );
@@ -244,7 +271,16 @@ pub fn linear4_bf16_forward<T: Triton, D: Float, const BLOCK: i32>(
             + xlo * T::cast::<i32, D>(w2 << 16, None, true)
             + xhi * T::cast::<i32, D>(w2 & -65536, None, true);
         let w3 = T::cast::<D, i32>(
-            T::load(w_ptr.add_offsets(j + (n + 3) * half_k), Some(jm), Some(zeros), &[], None, None, None, false),
+            T::load(
+                w_ptr.add_offsets(j + (n + 3) * half_k),
+                Some(jm),
+                Some(zeros),
+                &[],
+                None,
+                None,
+                None,
+                false,
+            ),
             None,
             true,
         );
@@ -254,10 +290,38 @@ pub fn linear4_bf16_forward<T: Triton, D: Float, const BLOCK: i32>(
     }
     let one = offs.lt(1);
     let base = m * N + n;
-    T::store(y_ptr.add_offsets(offs + base), T::sum(a0, Some(0), true) + zeros, Some(one), &[], None, None);
-    T::store(y_ptr.add_offsets(offs + (base + 1)), T::sum(a1, Some(0), true) + zeros, Some(one), &[], None, None);
-    T::store(y_ptr.add_offsets(offs + (base + 2)), T::sum(a2, Some(0), true) + zeros, Some(one), &[], None, None);
-    T::store(y_ptr.add_offsets(offs + (base + 3)), T::sum(a3, Some(0), true) + zeros, Some(one), &[], None, None);
+    T::store(
+        y_ptr.add_offsets(offs + base),
+        T::sum(a0, Some(0), true) + zeros,
+        Some(one),
+        &[],
+        None,
+        None,
+    );
+    T::store(
+        y_ptr.add_offsets(offs + (base + 1)),
+        T::sum(a1, Some(0), true) + zeros,
+        Some(one),
+        &[],
+        None,
+        None,
+    );
+    T::store(
+        y_ptr.add_offsets(offs + (base + 2)),
+        T::sum(a2, Some(0), true) + zeros,
+        Some(one),
+        &[],
+        None,
+        None,
+    );
+    T::store(
+        y_ptr.add_offsets(offs + (base + 3)),
+        T::sum(a3, Some(0), true) + zeros,
+        Some(one),
+        &[],
+        None,
+        None,
+    );
 }
 
 /// [`linear4_forward`] with program ids numbered down the rows: consecutive ids compute
@@ -572,9 +636,20 @@ pub struct Linear4Bf16Op<D: FloatBytes + Send + Sync + 'static> {
 impl<D: FloatBytes + Send + Sync + 'static> Linear4Bf16Op<D> {
     /// Creates the op.
     pub fn new(k: usize, n: usize, block: i32) -> Self {
-        assert!(n.is_multiple_of(4), "linear4 bf16: out features must be a multiple of 4");
-        assert!(k.is_multiple_of(2), "linear4 bf16: in features must be even");
-        Self { k, n, block, _phantom: PhantomData }
+        assert!(
+            n.is_multiple_of(4),
+            "linear4 bf16: out features must be a multiple of 4"
+        );
+        assert!(
+            k.is_multiple_of(2),
+            "linear4 bf16: in features must be even"
+        );
+        Self {
+            k,
+            n,
+            block,
+            _phantom: PhantomData,
+        }
     }
 }
 
@@ -597,7 +672,11 @@ impl<D: FloatBytes + Send + Sync + 'static> CustomOp for Linear4Bf16Op<D> {
             "linear4_bf16_forward".to_string(),
             kernel.source,
             "entry_point".to_string(),
-            Arc::new(Linear4Bf16RuntimeOp::<D> { k: self.k, n: self.n, _phantom: PhantomData }),
+            Arc::new(Linear4Bf16RuntimeOp::<D> {
+                k: self.k,
+                n: self.n,
+                _phantom: PhantomData,
+            }),
         ))
     }
 }
@@ -721,17 +800,51 @@ pub fn linear_lanes_bf16_forward<T: Triton, D: Float, const LANES: i32>(
         let mut a0 = T::zeros::<D>(&[LANES]);
         for j in 0..half_k {
             let w = T::cast::<D, i32>(
-                T::load(w_ptr.add_offsets(lanes + (wbase + j * LANES)), None, None, &[], None, None, None, false),
+                T::load(
+                    w_ptr.add_offsets(lanes + (wbase + j * LANES)),
+                    None,
+                    None,
+                    &[],
+                    None,
+                    None,
+                    None,
+                    false,
+                ),
                 None,
                 true,
             );
             let lo = T::cast::<i32, D>(w << 16, None, true);
             let hi = T::cast::<i32, D>(w & -65536, None, true);
-            let xl = T::load(x_ptr.add_offsets(splat + (x0 + j)), None, None, &[], None, None, None, false);
-            let xh = T::load(x_ptr.add_offsets(splat + (x0 + half_k + j)), None, None, &[], None, None, None, false);
+            let xl = T::load(
+                x_ptr.add_offsets(splat + (x0 + j)),
+                None,
+                None,
+                &[],
+                None,
+                None,
+                None,
+                false,
+            );
+            let xh = T::load(
+                x_ptr.add_offsets(splat + (x0 + half_k + j)),
+                None,
+                None,
+                &[],
+                None,
+                None,
+                None,
+                false,
+            );
             a0 = a0 + lo * xl + hi * xh;
         }
-        T::store(y_ptr.add_offsets(lanes + (r0 * N + col)), a0, None, &[], None, None);
+        T::store(
+            y_ptr.add_offsets(lanes + (r0 * N + col)),
+            a0,
+            None,
+            &[],
+            None,
+            None,
+        );
     } else {
         // Rows past the end repeat the last one: they store the same values to the
         // same place, which costs a little arithmetic and no masks.
@@ -749,7 +862,16 @@ pub fn linear_lanes_bf16_forward<T: Triton, D: Float, const LANES: i32>(
         let mut a3 = T::zeros::<D>(&[LANES]);
         for j in 0..half_k {
             let w = T::cast::<D, i32>(
-                T::load(w_ptr.add_offsets(lanes + (wbase + j * LANES)), None, None, &[], None, None, None, false),
+                T::load(
+                    w_ptr.add_offsets(lanes + (wbase + j * LANES)),
+                    None,
+                    None,
+                    &[],
+                    None,
+                    None,
+                    None,
+                    false,
+                ),
                 None,
                 true,
             );
@@ -757,22 +879,122 @@ pub fn linear_lanes_bf16_forward<T: Triton, D: Float, const LANES: i32>(
             let hi = T::cast::<i32, D>(w & -65536, None, true);
             let h = half_k + j;
             a0 = a0
-                + lo * T::load(x_ptr.add_offsets(splat + (x0 + j)), None, None, &[], None, None, None, false)
-                + hi * T::load(x_ptr.add_offsets(splat + (x0 + h)), None, None, &[], None, None, None, false);
+                + lo * T::load(
+                    x_ptr.add_offsets(splat + (x0 + j)),
+                    None,
+                    None,
+                    &[],
+                    None,
+                    None,
+                    None,
+                    false,
+                )
+                + hi * T::load(
+                    x_ptr.add_offsets(splat + (x0 + h)),
+                    None,
+                    None,
+                    &[],
+                    None,
+                    None,
+                    None,
+                    false,
+                );
             a1 = a1
-                + lo * T::load(x_ptr.add_offsets(splat + (x1 + j)), None, None, &[], None, None, None, false)
-                + hi * T::load(x_ptr.add_offsets(splat + (x1 + h)), None, None, &[], None, None, None, false);
+                + lo * T::load(
+                    x_ptr.add_offsets(splat + (x1 + j)),
+                    None,
+                    None,
+                    &[],
+                    None,
+                    None,
+                    None,
+                    false,
+                )
+                + hi * T::load(
+                    x_ptr.add_offsets(splat + (x1 + h)),
+                    None,
+                    None,
+                    &[],
+                    None,
+                    None,
+                    None,
+                    false,
+                );
             a2 = a2
-                + lo * T::load(x_ptr.add_offsets(splat + (x2 + j)), None, None, &[], None, None, None, false)
-                + hi * T::load(x_ptr.add_offsets(splat + (x2 + h)), None, None, &[], None, None, None, false);
+                + lo * T::load(
+                    x_ptr.add_offsets(splat + (x2 + j)),
+                    None,
+                    None,
+                    &[],
+                    None,
+                    None,
+                    None,
+                    false,
+                )
+                + hi * T::load(
+                    x_ptr.add_offsets(splat + (x2 + h)),
+                    None,
+                    None,
+                    &[],
+                    None,
+                    None,
+                    None,
+                    false,
+                );
             a3 = a3
-                + lo * T::load(x_ptr.add_offsets(splat + (x3 + j)), None, None, &[], None, None, None, false)
-                + hi * T::load(x_ptr.add_offsets(splat + (x3 + h)), None, None, &[], None, None, None, false);
+                + lo * T::load(
+                    x_ptr.add_offsets(splat + (x3 + j)),
+                    None,
+                    None,
+                    &[],
+                    None,
+                    None,
+                    None,
+                    false,
+                )
+                + hi * T::load(
+                    x_ptr.add_offsets(splat + (x3 + h)),
+                    None,
+                    None,
+                    &[],
+                    None,
+                    None,
+                    None,
+                    false,
+                );
         }
-        T::store(y_ptr.add_offsets(lanes + (r0 * N + col)), a0, None, &[], None, None);
-        T::store(y_ptr.add_offsets(lanes + (r1 * N + col)), a1, None, &[], None, None);
-        T::store(y_ptr.add_offsets(lanes + (r2 * N + col)), a2, None, &[], None, None);
-        T::store(y_ptr.add_offsets(lanes + (r3 * N + col)), a3, None, &[], None, None);
+        T::store(
+            y_ptr.add_offsets(lanes + (r0 * N + col)),
+            a0,
+            None,
+            &[],
+            None,
+            None,
+        );
+        T::store(
+            y_ptr.add_offsets(lanes + (r1 * N + col)),
+            a1,
+            None,
+            &[],
+            None,
+            None,
+        );
+        T::store(
+            y_ptr.add_offsets(lanes + (r2 * N + col)),
+            a2,
+            None,
+            &[],
+            None,
+            None,
+        );
+        T::store(
+            y_ptr.add_offsets(lanes + (r3 * N + col)),
+            a3,
+            None,
+            &[],
+            None,
+            None,
+        );
     }
 }
 
@@ -810,9 +1032,19 @@ pub struct LinearLanesBf16Op<D: FloatBytes + Send + Sync + 'static> {
 impl<D: FloatBytes + Send + Sync + 'static> LinearLanesBf16Op<D> {
     /// Creates the op.
     pub fn new(k: usize, n: usize) -> Self {
-        assert!(n.is_multiple_of(LANES), "linear lanes: {n} outputs are not a multiple of {LANES}");
-        assert!(k.is_multiple_of(2), "linear lanes: in features must be even");
-        Self { k, n, _phantom: PhantomData }
+        assert!(
+            n.is_multiple_of(LANES),
+            "linear lanes: {n} outputs are not a multiple of {LANES}"
+        );
+        assert!(
+            k.is_multiple_of(2),
+            "linear lanes: in features must be even"
+        );
+        Self {
+            k,
+            n,
+            _phantom: PhantomData,
+        }
     }
 }
 
@@ -835,7 +1067,11 @@ impl<D: FloatBytes + Send + Sync + 'static> CustomOp for LinearLanesBf16Op<D> {
             "linear_lanes_bf16_forward".to_string(),
             kernel.source,
             "entry_point".to_string(),
-            Arc::new(LinearLanesBf16RuntimeOp::<D> { k: self.k, n: self.n, _phantom: PhantomData }),
+            Arc::new(LinearLanesBf16RuntimeOp::<D> {
+                k: self.k,
+                n: self.n,
+                _phantom: PhantomData,
+            }),
         ))
     }
 }
@@ -879,7 +1115,11 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for LinearLanesBf16Runtime
     }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
-        [(self.n / LANES) as u32, output_shape[0].div_ceil(ROW_TILE) as u32, 1]
+        [
+            (self.n / LANES) as u32,
+            output_shape[0].div_ceil(ROW_TILE) as u32,
+            1,
+        ]
     }
 }
 
@@ -935,7 +1175,16 @@ pub fn linear_lanes_i8_forward<T: Triton, D: Float, const LANES: i32>(
     let wbase = nb * K * LANES;
     let r0 = rt * 4;
     let col = nb * LANES;
-    let scale = T::load(s_ptr.add_offsets(lanes + (N * K / 4 + col)), None, None, &[], None, None, None, false);
+    let scale = T::load(
+        s_ptr.add_offsets(lanes + (N * K / 4 + col)),
+        None,
+        None,
+        &[],
+        None,
+        None,
+        None,
+        false,
+    );
 
     if M - r0 == 1 {
         let x0 = r0 * K;
@@ -943,16 +1192,42 @@ pub fn linear_lanes_i8_forward<T: Triton, D: Float, const LANES: i32>(
         for k in 0..K {
             let q = T::cast::<i32, D>(
                 T::cast::<u8, i32>(
-                    T::load(w_ptr.add_offsets(lanes + (wbase + k * LANES)), None, None, &[], None, None, None, false),
+                    T::load(
+                        w_ptr.add_offsets(lanes + (wbase + k * LANES)),
+                        None,
+                        None,
+                        &[],
+                        None,
+                        None,
+                        None,
+                        false,
+                    ),
                     None,
                     false,
                 ) - 128,
                 None,
                 false,
             );
-            a0 = a0 + q * T::load(x_ptr.add_offsets(splat + (x0 + k)), None, None, &[], None, None, None, false);
+            a0 = a0
+                + q * T::load(
+                    x_ptr.add_offsets(splat + (x0 + k)),
+                    None,
+                    None,
+                    &[],
+                    None,
+                    None,
+                    None,
+                    false,
+                );
         }
-        T::store(y_ptr.add_offsets(lanes + (r0 * N + col)), a0 * scale, None, &[], None, None);
+        T::store(
+            y_ptr.add_offsets(lanes + (r0 * N + col)),
+            a0 * scale,
+            None,
+            &[],
+            None,
+            None,
+        );
     } else {
         let last = M - 1;
         let r1 = if r0 + 1 < M { r0 + 1 } else { last };
@@ -969,22 +1244,99 @@ pub fn linear_lanes_i8_forward<T: Triton, D: Float, const LANES: i32>(
         for k in 0..K {
             let q = T::cast::<i32, D>(
                 T::cast::<u8, i32>(
-                    T::load(w_ptr.add_offsets(lanes + (wbase + k * LANES)), None, None, &[], None, None, None, false),
+                    T::load(
+                        w_ptr.add_offsets(lanes + (wbase + k * LANES)),
+                        None,
+                        None,
+                        &[],
+                        None,
+                        None,
+                        None,
+                        false,
+                    ),
                     None,
                     false,
                 ) - 128,
                 None,
                 false,
             );
-            a0 = a0 + q * T::load(x_ptr.add_offsets(splat + (x0 + k)), None, None, &[], None, None, None, false);
-            a1 = a1 + q * T::load(x_ptr.add_offsets(splat + (x1 + k)), None, None, &[], None, None, None, false);
-            a2 = a2 + q * T::load(x_ptr.add_offsets(splat + (x2 + k)), None, None, &[], None, None, None, false);
-            a3 = a3 + q * T::load(x_ptr.add_offsets(splat + (x3 + k)), None, None, &[], None, None, None, false);
+            a0 = a0
+                + q * T::load(
+                    x_ptr.add_offsets(splat + (x0 + k)),
+                    None,
+                    None,
+                    &[],
+                    None,
+                    None,
+                    None,
+                    false,
+                );
+            a1 = a1
+                + q * T::load(
+                    x_ptr.add_offsets(splat + (x1 + k)),
+                    None,
+                    None,
+                    &[],
+                    None,
+                    None,
+                    None,
+                    false,
+                );
+            a2 = a2
+                + q * T::load(
+                    x_ptr.add_offsets(splat + (x2 + k)),
+                    None,
+                    None,
+                    &[],
+                    None,
+                    None,
+                    None,
+                    false,
+                );
+            a3 = a3
+                + q * T::load(
+                    x_ptr.add_offsets(splat + (x3 + k)),
+                    None,
+                    None,
+                    &[],
+                    None,
+                    None,
+                    None,
+                    false,
+                );
         }
-        T::store(y_ptr.add_offsets(lanes + (r0 * N + col)), a0 * scale, None, &[], None, None);
-        T::store(y_ptr.add_offsets(lanes + (r1 * N + col)), a1 * scale, None, &[], None, None);
-        T::store(y_ptr.add_offsets(lanes + (r2 * N + col)), a2 * scale, None, &[], None, None);
-        T::store(y_ptr.add_offsets(lanes + (r3 * N + col)), a3 * scale, None, &[], None, None);
+        T::store(
+            y_ptr.add_offsets(lanes + (r0 * N + col)),
+            a0 * scale,
+            None,
+            &[],
+            None,
+            None,
+        );
+        T::store(
+            y_ptr.add_offsets(lanes + (r1 * N + col)),
+            a1 * scale,
+            None,
+            &[],
+            None,
+            None,
+        );
+        T::store(
+            y_ptr.add_offsets(lanes + (r2 * N + col)),
+            a2 * scale,
+            None,
+            &[],
+            None,
+            None,
+        );
+        T::store(
+            y_ptr.add_offsets(lanes + (r3 * N + col)),
+            a3 * scale,
+            None,
+            &[],
+            None,
+            None,
+        );
     }
 }
 
@@ -1033,9 +1385,19 @@ pub struct LinearLanesI8Op<D: FloatBytes + Send + Sync + 'static> {
 impl<D: FloatBytes + Send + Sync + 'static> LinearLanesI8Op<D> {
     /// Creates the op.
     pub fn new(k: usize, n: usize) -> Self {
-        assert!(n.is_multiple_of(I8_LANES), "int8 lanes: {n} outputs are not a multiple of {I8_LANES}");
-        assert!(k.is_multiple_of(4), "int8 lanes: in features must be a multiple of 4");
-        Self { k, n, _phantom: PhantomData }
+        assert!(
+            n.is_multiple_of(I8_LANES),
+            "int8 lanes: {n} outputs are not a multiple of {I8_LANES}"
+        );
+        assert!(
+            k.is_multiple_of(4),
+            "int8 lanes: in features must be a multiple of 4"
+        );
+        Self {
+            k,
+            n,
+            _phantom: PhantomData,
+        }
     }
 }
 
@@ -1058,7 +1420,11 @@ impl<D: FloatBytes + Send + Sync + 'static> CustomOp for LinearLanesI8Op<D> {
             "linear_lanes_i8_forward".to_string(),
             kernel.source,
             "entry_point".to_string(),
-            Arc::new(LinearLanesI8RuntimeOp::<D> { k: self.k, n: self.n, _phantom: PhantomData }),
+            Arc::new(LinearLanesI8RuntimeOp::<D> {
+                k: self.k,
+                n: self.n,
+                _phantom: PhantomData,
+            }),
         ))
     }
 }
@@ -1103,6 +1469,10 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for LinearLanesI8RuntimeOp
     }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
-        [(self.n / I8_LANES) as u32, output_shape[0].div_ceil(ROW_TILE) as u32, 1]
+        [
+            (self.n / I8_LANES) as u32,
+            output_shape[0].div_ceil(ROW_TILE) as u32,
+            1,
+        ]
     }
 }

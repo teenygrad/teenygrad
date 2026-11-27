@@ -19,12 +19,12 @@
 pub mod attention;
 pub mod block_attn;
 pub mod cat2;
+pub mod controller;
 pub mod dyn_sconv;
 pub mod embed;
 pub mod expert_gather;
 pub mod expert_gather_mxfp8;
 pub mod expert_gather_nvfp4;
-pub mod controller;
 pub mod expert_gemv_mxfp8;
 pub mod expert_gemv_nvfp4;
 pub mod gated_mul;

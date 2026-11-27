@@ -92,29 +92,35 @@ impl ReadJob {
     /// Reads the job's slots and writes every one that has a host buffer in place.
     fn run<'a>(self, ck: &'a Checkpoint, private: &mut Option<Checkpoint>) -> ReadDone<'a> {
         let mut written = 0;
-        let rest = super::load::read_shared(ck, private, &self.names, &self.shapes, self.layer).and_then(|values| {
-            let mut rest = Vec::new();
-            for ((slot, value), dst) in values.into_iter().zip(&self.dst) {
-                match dst {
-                    Some(d) => {
-                        anyhow::ensure!(
-                            value.len() == d.len,
-                            "{slot}: read {} values for a buffer of {}",
-                            value.len(),
-                            d.len
-                        );
-                        // Safety: `HostDst` -- this thread is the buffer's only user
-                        // until the result is sent.
-                        unsafe { std::slice::from_raw_parts_mut(d.ptr, d.len) }.copy_from_slice(&value);
-                        written += 1;
+        let rest = super::load::read_shared(ck, private, &self.names, &self.shapes, self.layer)
+            .and_then(|values| {
+                let mut rest = Vec::new();
+                for ((slot, value), dst) in values.into_iter().zip(&self.dst) {
+                    match dst {
+                        Some(d) => {
+                            anyhow::ensure!(
+                                value.len() == d.len,
+                                "{slot}: read {} values for a buffer of {}",
+                                value.len(),
+                                d.len
+                            );
+                            // Safety: `HostDst` -- this thread is the buffer's only user
+                            // until the result is sent.
+                            unsafe { std::slice::from_raw_parts_mut(d.ptr, d.len) }
+                                .copy_from_slice(&value);
+                            written += 1;
+                        }
+                        None => rest.push((slot, value)),
                     }
-                    None => rest.push((slot, value)),
                 }
-            }
-            prefault(&rest);
-            Ok(rest)
-        });
-        ReadDone { graph: self.graph, rest, written }
+                prefault(&rest);
+                Ok(rest)
+            });
+        ReadDone {
+            graph: self.graph,
+            rest,
+            written,
+        }
     }
 }
 
@@ -185,11 +191,28 @@ impl<'d> Pending<'d> {
                 Ok(model
                     .param_host_slice(*node, *idx)?
                     .filter(|s| s.len() == want)
-                    .map(|s| HostDst { ptr: s.as_mut_ptr(), len: s.len() }))
+                    .map(|s| HostDst {
+                        ptr: s.as_mut_ptr(),
+                        len: s.len(),
+                    }))
             })
             .collect::<anyhow::Result<_>>()?;
-        let job = ReadJob { graph: index, names, shapes, layer, dst };
-        Ok((Self { model, outs, slots, layer }, job))
+        let job = ReadJob {
+            graph: index,
+            names,
+            shapes,
+            layer,
+            dst,
+        };
+        Ok((
+            Self {
+                model,
+                outs,
+                slots,
+                layer,
+            },
+            job,
+        ))
     }
 
     /// Copies what a worker could not write in place into the graph's parameter
@@ -204,8 +227,10 @@ impl<'d> Pending<'d> {
             done.written,
             values.len()
         );
-        let by_name: HashMap<&str, &[f32]> =
-            values.iter().map(|(n, v)| (n.as_str(), v.as_ref())).collect();
+        let by_name: HashMap<&str, &[f32]> = values
+            .iter()
+            .map(|(n, v)| (n.as_str(), v.as_ref()))
+            .collect();
         for (name, node, idx) in &self.slots {
             if let Some(v) = by_name.get(name.as_str()) {
                 self.model
@@ -396,7 +421,8 @@ impl<'d> Engine<'d> {
                 let width = if which < 2 { kv } else { hid };
                 self.state.conv[slot][which].clone_from(&before[which]);
                 let kept = (keep * width).min(rows[which].len());
-                self.state.roll_conv(slot, which, &rows[which][..kept], width);
+                self.state
+                    .roll_conv(slot, which, &rows[which][..kept], width);
             }
         }
         self.state.len = len;
@@ -404,7 +430,6 @@ impl<'d> Engine<'d> {
         self.tokens.truncate(len);
         Ok(())
     }
-
 
     /// Compiles every graph and loads every weight. This is the slow part: the
     /// parameters are around 22 GB for Inkling-2-Mini.
@@ -455,28 +480,35 @@ impl<'d> Engine<'d> {
             let mut filled = 0usize;
             // Where the main thread's time goes, for INKLING2_LOAD_TIMING.
             let (t_compile, t_fill) = (std::cell::Cell::new(0.0f64), std::cell::Cell::new(0.0f64));
-            let fill = |pending: &mut Vec<Option<Pending<'d>>>, done: ReadDone<'_>| -> anyhow::Result<()> {
-                let p = pending[done.graph].as_mut().expect("a graph is compiled before it is read");
+            let fill = |pending: &mut Vec<Option<Pending<'d>>>,
+                        done: ReadDone<'_>|
+             -> anyhow::Result<()> {
+                let p = pending[done.graph]
+                    .as_mut()
+                    .expect("a graph is compiled before it is read");
                 let t = std::time::Instant::now();
                 p.fill(done)?;
                 t_fill.set(t_fill.get() + t.elapsed().as_secs_f64());
                 Ok(())
             };
-            let mut stage = |g: &Graph, outs: &[&SymTensor], layer: usize| -> anyhow::Result<usize> {
-                let index = pending.len();
-                let t = std::time::Instant::now();
-                let (p, job) = Pending::compile(device, g, outs, MAX_TOKENS, ck, layer, index)?;
-                t_compile.set(t_compile.get() + t.elapsed().as_secs_f64());
-                pending.push(Some(p));
-                job_tx.send(job).map_err(|_| anyhow::anyhow!("the loader threads stopped"))?;
-                // Copy what the workers have finished meanwhile, so the pages they
-                // faulted in are still cached when they are copied.
-                while let Ok(done) = res_rx.try_recv() {
-                    fill(&mut pending, done)?;
-                    filled += 1;
-                }
-                Ok(index)
-            };
+            let mut stage =
+                |g: &Graph, outs: &[&SymTensor], layer: usize| -> anyhow::Result<usize> {
+                    let index = pending.len();
+                    let t = std::time::Instant::now();
+                    let (p, job) = Pending::compile(device, g, outs, MAX_TOKENS, ck, layer, index)?;
+                    t_compile.set(t_compile.get() + t.elapsed().as_secs_f64());
+                    pending.push(Some(p));
+                    job_tx
+                        .send(job)
+                        .map_err(|_| anyhow::anyhow!("the loader threads stopped"))?;
+                    // Copy what the workers have finished meanwhile, so the pages they
+                    // faulted in are still cached when they are copied.
+                    while let Ok(done) = res_rx.try_recv() {
+                        fill(&mut pending, done)?;
+                        filled += 1;
+                    }
+                    Ok(index)
+                };
             let t = None;
             let embed = {
                 let b = Builder::new_dyn(&[t]);
@@ -573,10 +605,17 @@ impl<'d> Engine<'d> {
                 fill(&mut pending, done)?;
                 filled += 1;
             }
-            anyhow::ensure!(filled == pending.len(), "{filled} of {} graphs loaded", pending.len());
+            anyhow::ensure!(
+                filled == pending.len(),
+                "{filled} of {} graphs loaded",
+                pending.len()
+            );
             let mut take = |i: usize| -> Compiled<'d> {
                 let p = pending[i].take().expect("each graph is taken once");
-                Compiled { model: p.model, outs: p.outs }
+                Compiled {
+                    model: p.model,
+                    outs: p.outs,
+                }
             };
             if timing {
                 eprintln!(
@@ -589,7 +628,10 @@ impl<'d> Engine<'d> {
             Ok((take(embed), layers, take(messages), take(head)))
         })?;
         if timing {
-            eprintln!("load: {:.1} s with {LOAD_WORKERS} loader threads", t_load.elapsed().as_secs_f64());
+            eprintln!(
+                "load: {:.1} s with {LOAD_WORKERS} loader threads",
+                t_load.elapsed().as_secs_f64()
+            );
         }
 
         // INKLING2_DUMP_DAG names a file for every layer graph's op nodes, one per
@@ -600,7 +642,11 @@ impl<'d> Engine<'d> {
                 for (node, name, parents, lib) in graph.model.dag() {
                     let a100 = lib.is_some_and(|l| l.contains("linear_ime"));
                     let parents: Vec<String> = parents.iter().map(usize::to_string).collect();
-                    text += &format!("{i}\t{node}\t{name}\t{}\t{}\n", u8::from(a100), parents.join(","));
+                    text += &format!(
+                        "{i}\t{node}\t{name}\t{}\t{}\n",
+                        u8::from(a100),
+                        parents.join(",")
+                    );
                 }
             }
             std::fs::write(path, text)?;
@@ -676,7 +722,11 @@ impl<'d> Engine<'d> {
             (1..=MAX_TOKENS).contains(&t),
             "a step takes 1 to {MAX_TOKENS} tokens, not {t}"
         );
-        for graph in self.layers.iter_mut().chain([&mut self.embed, &mut self.messages]) {
+        for graph in self
+            .layers
+            .iter_mut()
+            .chain([&mut self.embed, &mut self.messages])
+        {
             graph.set_rows(t)?;
         }
         self.undo = self.keep_undo.then(|| StepUndo {
@@ -804,7 +854,13 @@ impl<'d> Engine<'d> {
                     let feeds: Vec<Feed<'_>> = feeds
                         .into_iter()
                         .enumerate()
-                        .map(|(i, f)| if i == 7 || i == 8 { Feed::Borrow(f) } else { Feed::Copy(f) })
+                        .map(|(i, f)| {
+                            if i == 7 || i == 8 {
+                                Feed::Borrow(f)
+                            } else {
+                                Feed::Copy(f)
+                            }
+                        })
                         .collect();
                     let mut out = self.layers[step.layer].run_feeds(device, &feeds)?;
                     let (conv3, conv2) = (out.remove(6), out.remove(5));
@@ -863,7 +919,9 @@ impl<'d> Engine<'d> {
         self.head.set_rows(1)?;
         let last = |v: &[f32]| v[(t - 1) * hid..t * hid].to_vec();
         let head_blocks: Vec<f32> = self.state.blocks.iter().flat_map(|b| last(b)).collect();
-        Ok(vec![self.head.run(device, &[&head_blocks, &last(&x)])?.remove(0)])
+        Ok(vec![
+            self.head.run(device, &[&head_blocks, &last(&x)])?.remove(0),
+        ])
     }
 
     /// The most likely next token, masked to the real vocabulary.

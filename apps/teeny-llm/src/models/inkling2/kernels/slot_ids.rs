@@ -145,7 +145,11 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for SlotIdsRuntimeOp<D> {
     }
 
     /// One row per (token, slot): `top_k` times the router's rows.
-    fn compute_concrete_output_shape(&self, input_shapes: &[&[usize]], _resolved: &[usize]) -> Vec<usize> {
+    fn compute_concrete_output_shape(
+        &self,
+        input_shapes: &[&[usize]],
+        _resolved: &[usize],
+    ) -> Vec<usize> {
         vec![input_shapes[0][0] * self.top_k, 2]
     }
     fn param_shapes(&self, _i: &[&[usize]], _o: &[usize]) -> Vec<Vec<usize>> {

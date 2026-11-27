@@ -24,7 +24,10 @@ use std::sync::{Mutex, OnceLock};
 
 macro_rules! library {
     ($name:literal) => {
-        ($name, include_bytes!(concat!(env!("OUT_DIR"), "/", $name, ".so")).as_slice())
+        (
+            $name,
+            include_bytes!(concat!(env!("OUT_DIR"), "/", $name, ".so")).as_slice(),
+        )
     };
 }
 
@@ -51,7 +54,9 @@ pub fn library(name: &str) -> anyhow::Result<PathBuf> {
         "native kernel library {name} was not built: build with the riscv feature and a \
          RISC-V C compiler ($TEENY_RISCV_CC, default riscv64-linux-gnu-gcc)"
     );
-    let hash = bytes.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ u64::from(*b)).wrapping_mul(0x100_0000_01b3));
+    let hash = bytes.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, b| {
+        (h ^ u64::from(*b)).wrapping_mul(0x100_0000_01b3)
+    });
     let dir = std::env::temp_dir().join("teeny-native");
     std::fs::create_dir_all(&dir)?;
     let path = dir.join(format!("{name}-{hash:016x}.so"));

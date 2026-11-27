@@ -27,8 +27,11 @@ use std::rc::Rc;
 
 use teeny_core::graph::{CustomData, CustomOp, DtypeRepr, Graph, Op, SymTensor};
 use teeny_core::model::LoweringMode;
-use teeny_core::name_scope::name_scope;
 use teeny_kernels::graph::TritonLowering;
+use teeny_llm::kernels::linear::{
+    Linear4Bf16Op, Linear4Op, LinearLanesBf16Op, LinearLanesI8Op, interleave_lanes,
+    pack_bf16_halves, quantize_lanes_i8,
+};
 use teeny_llm::models::inkling2::kernels::{
     attention::{AttentionSpec, PastLen, SinkAttentionOp},
     block_attn::BlockAttnOp,
@@ -41,7 +44,8 @@ use teeny_llm::models::inkling2::kernels::{
     expert_gather_nvfp4::ExpertGatherNvfp4Op,
     expert_gemv_mxfp8::ExpertGemvMxfp8Op,
     expert_gemv_nvfp4::{
-        ExpertGemvNvfp4Op, QuantRowsQ8Op, ROWS, byte_scale_rows, interleave_row_bytes, interleave_rows,
+        ExpertGemvNvfp4Op, QuantRowsQ8Op, ROWS, byte_scale_rows, interleave_row_bytes,
+        interleave_rows,
     },
     gated_mul::GatedMulOp,
     l2_clip::{L2ClipOp, ScaledL2ClipOp},
@@ -55,10 +59,7 @@ use teeny_llm::models::inkling2::kernels::{
     softcap::SoftcapOp,
     swiglu::SwigluOp,
 };
-use teeny_llm::kernels::linear::{
-    Linear4Bf16Op, Linear4Op, LinearLanesBf16Op, LinearLanesI8Op, interleave_lanes, pack_bf16_halves,
-    quantize_lanes_i8,
-};
+use teeny_llm::models::inkling2::naming::{RecordNamed, name_scope};
 use teeny_llm::models::inkling2::weights::{Checkpoint, pack_rows};
 use teeny_test::model::{RuntimeModel, runtime};
 
@@ -116,7 +117,7 @@ impl OneOp {
         // Parameter slots are named after the node's scope, as the model names its weights.
         let out = {
             let _scope = name_scope("op");
-            self.first.record_custom(CustomData::new(op), others, None)
+            self.first.record_named(CustomData::new(op), others, None)
         };
         let graph: &Graph = &self.graph.borrow();
         let lowering = TritonLowering::new();
@@ -1753,15 +1754,26 @@ fn test_fused_rel_bias_matches_the_reference() {
     let x: Vec<f32> = values(t * heads * dr, 651)
         .iter()
         .enumerate()
-        .map(|(i, v)| if (i / dr) % heads == 0 { v * 4.0 } else { v * 0.2 })
+        .map(|(i, v)| {
+            if (i / dr) % heads == 0 {
+                v * 4.0
+            } else {
+                v * 0.2
+            }
+        })
         .collect();
-    let scale: Vec<f32> = values(heads * dr, 652).iter().map(|v| 0.5 + v.abs()).collect();
+    let scale: Vec<f32> = values(heads * dr, 652)
+        .iter()
+        .map(|v| 0.5 + v.abs())
+        .collect();
     let proj = values(dr * extent, 653);
     let thr = 1.5f32;
     let mut want = vec![0.0f32; t * heads * width];
     for tok in 0..t {
         for h in 0..heads {
-            let r: Vec<f32> = (0..dr).map(|d| x[(tok * heads + h) * dr + d] * scale[h * dr + d]).collect();
+            let r: Vec<f32> = (0..dr)
+                .map(|d| x[(tok * heads + h) * dr + d] * scale[h * dr + d])
+                .collect();
             let norm = r.iter().map(|v| v * v).sum::<f32>().sqrt();
             let ratio = (thr / (norm + 1e-6)).min(1.0);
             let pos = past + tok;
@@ -1798,19 +1810,40 @@ fn test_sconv_post_ops_match_the_separate_ops() {
     let w = values(c * K, 643);
     let dynw = values(t * heads * K, 644);
     let stat = values(K * c, 645);
-    for post in [Post::L2Clip { head_dim: hd, threshold: 0.5 }, Post::Rms { head_dim: hd }] {
+    for post in [
+        Post::L2Clip {
+            head_dim: hd,
+            threshold: 0.5,
+        },
+        Post::Rms { head_dim: hd },
+    ] {
         let g = OneOp::new(&[K - 1, c]);
         let x_in = g.input(&[t, c]);
         let plain = g.run(SconvOp::<f32>::new(c, K), &[&x_in], &[&hist, &x], &[&w]);
         let g = OneOp::new(&[K - 1, c]);
         let x_in = g.input(&[t, c]);
-        let got = g.run(SconvOp::<f32>::with_post(c, K, post), &[&x_in], &[&hist, &x], &[&w]);
-        assert_close(&format!("sconv {post:?}"), &got, &post_heads(&plain, hd, post), 1e-5);
+        let got = g.run(
+            SconvOp::<f32>::with_post(c, K, post),
+            &[&x_in],
+            &[&hist, &x],
+            &[&w],
+        );
+        assert_close(
+            &format!("sconv {post:?}"),
+            &got,
+            &post_heads(&plain, hd, post),
+            1e-5,
+        );
 
         let g = OneOp::new(&[K - 1, c]);
         let x_in = g.input(&[t, c]);
         let d_in = g.input(&[t, heads * K]);
-        let plain = g.run(DynSconvOp::<f32>::new(c, heads, K), &[&x_in, &d_in], &[&hist, &x, &dynw], &[&stat]);
+        let plain = g.run(
+            DynSconvOp::<f32>::new(c, heads, K),
+            &[&x_in, &d_in],
+            &[&hist, &x, &dynw],
+            &[&stat],
+        );
         let g = OneOp::new(&[K - 1, c]);
         let x_in = g.input(&[t, c]);
         let d_in = g.input(&[t, heads * K]);
@@ -1820,7 +1853,12 @@ fn test_sconv_post_ops_match_the_separate_ops() {
             &[&hist, &x, &dynw],
             &[&stat],
         );
-        assert_close(&format!("dyn sconv {post:?}"), &got, &post_heads(&plain, hd, post), 1e-5);
+        assert_close(
+            &format!("dyn sconv {post:?}"),
+            &got,
+            &post_heads(&plain, hd, post),
+            1e-5,
+        );
     }
 }
 
@@ -2185,7 +2223,11 @@ fn host_q8_rows(x: &[f32], k: usize) -> Vec<f32> {
         for (b, block) in xs.chunks(16).enumerate() {
             let amax = block.iter().fold(0.0f32, |m, v| m.max(v.abs()));
             for (i, v) in block.iter().enumerate() {
-                let q = if amax > 0.0 { (v * 127.0 / amax).round() } else { 0.0 };
+                let q = if amax > 0.0 {
+                    (v * 127.0 / amax).round()
+                } else {
+                    0.0
+                };
                 out[row * stride + b * 16 + i] = q;
             }
             out[row * stride + k + b] = if amax > 0.0 { amax / 127.0 } else { 0.0 };
@@ -2212,7 +2254,10 @@ fn test_quant_rows_q8_matches_the_host() {
         for i in 0..k {
             let (g, w) = (got[row * stride + i], want[row * stride + i]);
             assert_eq!(g, w, "row {row} q[{i}]");
-            assert!(g.abs() <= 127.0 && g.fract() == 0.0, "row {row} q[{i}] = {g}");
+            assert!(
+                g.abs() <= 127.0 && g.fract() == 0.0,
+                "row {row} q[{i}] = {g}"
+            );
         }
         assert_close(
             "q8 block scales",
@@ -2326,7 +2371,11 @@ fn test_nvfp4_gemv_matches_the_integer_host_reference() {
                         .map(|i| {
                             let col = b * 16 + i;
                             let sc = flat[r * k / 16 + b];
-                            let w2 = if sc == 0.0 { 0 } else { (w[r * k + col] / sc * 2.0).round() as i64 };
+                            let w2 = if sc == 0.0 {
+                                0
+                            } else {
+                                (w[r * k + col] / sc * 2.0).round() as i64
+                            };
                             w2 * xq[tok * stride + col] as i64
                         })
                         .sum();
@@ -2416,7 +2465,8 @@ fn test_bf16_embedding_returns_the_rows_exactly() {
         .collect();
     let packed = pack_bf16_halves(&w, vocab, hidden).expect("bf16 weights pack");
     let ids = [3.0f32, 0.0, 6.0, 3.0];
-    let got = OneOp::new(&[ids.len()]).run(EmbedOp::<f32>::new(vocab, hidden), &[], &[&ids], &[&packed]);
+    let got =
+        OneOp::new(&[ids.len()]).run(EmbedOp::<f32>::new(vocab, hidden), &[], &[&ids], &[&packed]);
     let want: Vec<f32> = ids
         .iter()
         .flat_map(|&id| w[id as usize * hidden..(id as usize + 1) * hidden].to_vec())
@@ -2438,7 +2488,8 @@ fn test_lanes_linear_matches_the_f32_linear_at_any_row_count() {
     for m in [1usize, 2, 3, 4, 5, 7] {
         let x = values(m * k, 612 + m as u64);
         let want = OneOp::new(&[m, k]).run(Linear4Op::<f32>::new(k, n, 16), &[], &[&x], &[&w]);
-        let got = OneOp::new(&[m, k]).run(LinearLanesBf16Op::<f32>::new(k, n), &[], &[&x], &[&lanes]);
+        let got =
+            OneOp::new(&[m, k]).run(LinearLanesBf16Op::<f32>::new(k, n), &[], &[&x], &[&lanes]);
         assert_close(&format!("lanes linear, {m} rows"), &got, &want, 1e-5);
     }
 }
@@ -2500,7 +2551,10 @@ fn test_mxfp8_gemv_matches_the_f32_gather() {
     );
 
     let bytes = pack_rows(&wbytes.iter().map(|b| *b as f32).collect::<Vec<_>>(), k);
-    let scales = pack_rows(&sbytes.iter().map(|b| *b as f32).collect::<Vec<_>>(), k / 32);
+    let scales = pack_rows(
+        &sbytes.iter().map(|b| *b as f32).collect::<Vec<_>>(),
+        k / 32,
+    );
     let g = OneOp::new(&[t, k]);
     let ids_g = g.input(&[t, 2 * top_k]);
     let got = g.run(
@@ -2534,9 +2588,12 @@ fn test_one_model_runs_at_any_row_count_up_to_its_own() {
 
     // Rows left unknown, so they follow the row count.
     let (x, graph) = SymTensor::input(DtypeRepr::F32, vec![None, Some(k)]);
-    let ids_node = graph
-        .borrow_mut()
-        .add_node(Op::Input, vec![], DtypeRepr::F32, vec![None, Some(2 * top_k)]);
+    let ids_node = graph.borrow_mut().add_node(
+        Op::Input,
+        vec![],
+        DtypeRepr::F32,
+        vec![None, Some(2 * top_k)],
+    );
     let ids = SymTensor {
         node_id: ids_node,
         graph: graph.clone(),
@@ -2545,8 +2602,8 @@ fn test_one_model_runs_at_any_row_count_up_to_its_own() {
     };
     let experts = {
         let _scope = name_scope("op");
-        x.record_custom(CustomData::new(QuantRowsQ8Op::<f32>::new(k)), &[], None)
-            .record_custom(
+        x.record_named(CustomData::new(QuantRowsQ8Op::<f32>::new(k)), &[], None)
+            .record_named(
                 CustomData::new(ExpertGemvNvfp4Op::<f32>::new(e, n, k, top_k)),
                 &[&ids],
                 None,
@@ -2554,7 +2611,11 @@ fn test_one_model_runs_at_any_row_count_up_to_its_own() {
     };
     let linear = {
         let _scope = name_scope("lin");
-        x.record_custom(CustomData::new(Linear4Bf16Op::<f32>::new(k, 8, 16)), &[], None)
+        x.record_named(
+            CustomData::new(Linear4Bf16Op::<f32>::new(k, 8, 16)),
+            &[],
+            None,
+        )
     };
     let g: &Graph = &graph.borrow();
     let lowering = TritonLowering::new();
@@ -2563,8 +2624,16 @@ fn test_one_model_runs_at_any_row_count_up_to_its_own() {
         .expect("lowering");
     let device = runtime::open().expect("opening the device");
     let target = runtime::default_target(&device).expect("the device's target");
-    let mut model = RuntimeModel::compile(&device, g, &lowering, LoweringMode::Inference, &target, max_t, false)
-        .expect("compiling");
+    let mut model = RuntimeModel::compile(
+        &device,
+        g,
+        &lowering,
+        LoweringMode::Inference,
+        &target,
+        max_t,
+        false,
+    )
+    .expect("compiling");
     for (name, node, idx) in model.param_info_named().collect::<Vec<_>>() {
         let data: &[f32] = match name.as_str() {
             "op.weight_rows" => &w_r,
@@ -2572,14 +2641,18 @@ fn test_one_model_runs_at_any_row_count_up_to_its_own() {
             "lin.weight_bf16" => &lin_packed,
             other => panic!("unexpected parameter {other}"),
         };
-        model.load_param_f32(node, idx, data).expect("loading a parameter");
+        model
+            .load_param_f32(node, idx, data)
+            .expect("loading a parameter");
     }
     let outs = [to_dag[experts.node_id], to_dag[linear.node_id]];
 
     let xs = values(max_t * k, 703);
     let routes = [2usize, 0, 1, 2, 0, 1, 2, 2];
     let packed = packed_router_ids(&routes, max_t, top_k);
-    let all = model.run(&device, &[&xs, &packed], &outs).expect("running four rows");
+    let all = model
+        .run(&device, &[&xs, &packed], &outs)
+        .expect("running four rows");
     assert_eq!(all[0].len(), max_t * top_k * n);
     assert_eq!(all[1].len(), max_t * 8);
 
@@ -2588,14 +2661,24 @@ fn test_one_model_runs_at_any_row_count_up_to_its_own() {
         let one = model
             .run(
                 &device,
-                &[&xs[t * k..(t + 1) * k], &packed[t * 2 * top_k..(t + 1) * 2 * top_k]],
+                &[
+                    &xs[t * k..(t + 1) * k],
+                    &packed[t * 2 * top_k..(t + 1) * 2 * top_k],
+                ],
                 &outs,
             )
             .expect("running one row");
-        assert_eq!(one[0], all[0][t * top_k * n..(t + 1) * top_k * n], "token {t}, experts");
+        assert_eq!(
+            one[0],
+            all[0][t * top_k * n..(t + 1) * top_k * n],
+            "token {t}, experts"
+        );
         assert_eq!(one[1], all[1][t * 8..(t + 1) * 8], "token {t}, linear");
     }
-    assert!(model.set_rows(max_t + 1).is_err(), "more rows than compiled");
+    assert!(
+        model.set_rows(max_t + 1).is_err(),
+        "more rows than compiled"
+    );
     assert_eq!(model.rows(), 1, "a refused row count leaves the old one");
 }
 
@@ -2605,18 +2688,37 @@ fn test_one_model_runs_at_any_row_count_up_to_its_own() {
 #[test]
 fn test_fused_controller_matches_the_reference() {
     let (t, hid, rank) = (3usize, 200usize, 64usize);
-    let bf16 = |v: &[f32]| -> Vec<f32> { v.iter().map(|x| f32::from_bits(x.to_bits() & 0xFFFF_0000)).collect() };
+    let bf16 = |v: &[f32]| -> Vec<f32> {
+        v.iter()
+            .map(|x| f32::from_bits(x.to_bits() & 0xFFFF_0000))
+            .collect()
+    };
     // Large enough gates that tanh leaves its linear range on both sides.
     let h: Vec<f32> = values(t * hid, 801).iter().map(|v| v * 3.0).collect();
     let m: Vec<f32> = values(t * hid, 802).iter().map(|v| v * 2.0).collect();
     let wd = bf16(&values(rank * 2 * hid, 803));
-    let wf: Vec<f32> = bf16(&values(hid * rank, 804).iter().map(|v| v * 4.0).collect::<Vec<_>>());
-    let wg: Vec<f32> = bf16(&values(hid * rank, 805).iter().map(|v| v * 4.0).collect::<Vec<_>>());
+    let wf: Vec<f32> = bf16(
+        &values(hid * rank, 804)
+            .iter()
+            .map(|v| v * 4.0)
+            .collect::<Vec<_>>(),
+    );
+    let wg: Vec<f32> = bf16(
+        &values(hid * rank, 805)
+            .iter()
+            .map(|v| v * 4.0)
+            .collect::<Vec<_>>(),
+    );
 
     // Host reference, in f64.
     let mut want = vec![0.0f32; t * hid];
     for tok in 0..t {
-        let row = |v: &[f32]| v[tok * hid..(tok + 1) * hid].iter().map(|&x| x as f64).collect::<Vec<f64>>();
+        let row = |v: &[f32]| {
+            v[tok * hid..(tok + 1) * hid]
+                .iter()
+                .map(|&x| x as f64)
+                .collect::<Vec<f64>>()
+        };
         let (hr, mr) = (row(&h), row(&m));
         let norm = |x: &[f64]| {
             let inv = 1.0 / (x.iter().map(|v| v * v).sum::<f64>() / hid as f64 + 1e-6).sqrt();
@@ -2624,7 +2726,11 @@ fn test_fused_controller_matches_the_reference() {
         };
         let joined: Vec<f64> = norm(&hr).into_iter().chain(norm(&mr)).collect();
         let g: Vec<f64> = (0..rank)
-            .map(|r| (0..2 * hid).map(|k| wd[r * 2 * hid + k] as f64 * joined[k]).sum())
+            .map(|r| {
+                (0..2 * hid)
+                    .map(|k| wd[r * 2 * hid + k] as f64 * joined[k])
+                    .sum()
+            })
             .collect();
         for c in 0..hid {
             let f: f64 = (0..rank).map(|r| wf[c * rank + r] as f64 * g[r]).sum();

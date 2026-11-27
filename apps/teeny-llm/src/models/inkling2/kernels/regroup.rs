@@ -140,8 +140,15 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for RegroupRuntimeOp<D> {
 
     /// `factor` times the input's rows, each `factor` times narrower, which a graph
     /// that leaves the token count unknown cannot say until the rows are known.
-    fn compute_concrete_output_shape(&self, input_shapes: &[&[usize]], _resolved: &[usize]) -> Vec<usize> {
-        vec![input_shapes[0][0] * self.factor, input_shapes[0][1] / self.factor]
+    fn compute_concrete_output_shape(
+        &self,
+        input_shapes: &[&[usize]],
+        _resolved: &[usize],
+    ) -> Vec<usize> {
+        vec![
+            input_shapes[0][0] * self.factor,
+            input_shapes[0][1] / self.factor,
+        ]
     }
 
     fn param_shapes(&self, _input_shapes: &[&[usize]], _output_shape: &[usize]) -> Vec<Vec<usize>> {

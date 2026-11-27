@@ -145,8 +145,13 @@ impl GraphRun {
         let names: Vec<String> = slots.iter().map(|(n, _, _)| n.clone()).collect();
         let missing = teeny_llm::models::inkling2::load::missing(ck, &names, layer);
         assert!(missing.is_empty(), "layer {layer} is missing {missing:?}");
-        let values = teeny_llm::models::inkling2::load::read(ck, &names, &declared_shapes(&model, &slots), layer)
-            .expect("reading the layer's parameters");
+        let values = teeny_llm::models::inkling2::load::read(
+            ck,
+            &names,
+            &declared_shapes(&model, &slots),
+            layer,
+        )
+        .expect("reading the layer's parameters");
         let by_name: std::collections::HashMap<&str, &[f32]> = values
             .iter()
             .map(|(n, v)| (n.as_str(), v.as_slice()))
@@ -189,8 +194,13 @@ impl GraphRun {
         .expect("compiling the graph through teenyc");
         let slots: Vec<(String, usize, usize)> = model.param_info_named().collect();
         let names: Vec<String> = slots.iter().map(|(n, _, _)| n.clone()).collect();
-        let values = teeny_llm::models::inkling2::load::read(ck, &names, &declared_shapes(&model, &slots), layer)
-            .expect("reading the layer's parameters");
+        let values = teeny_llm::models::inkling2::load::read(
+            ck,
+            &names,
+            &declared_shapes(&model, &slots),
+            layer,
+        )
+        .expect("reading the layer's parameters");
         let by_name: std::collections::HashMap<&str, &[f32]> = values
             .iter()
             .map(|(n, v)| (n.as_str(), v.as_slice()))
@@ -867,8 +877,13 @@ fn test_layer_execution_speed() {
     let t_load = Instant::now();
     let slots: Vec<(String, usize, usize)> = model.param_info_named().collect();
     let names: Vec<String> = slots.iter().map(|(n, _, _)| n.clone()).collect();
-    let values = teeny_llm::models::inkling2::load::read(&mut ck, &names, &declared_shapes(&model, &slots), layer)
-        .expect("reading the layer's parameters");
+    let values = teeny_llm::models::inkling2::load::read(
+        &mut ck,
+        &names,
+        &declared_shapes(&model, &slots),
+        layer,
+    )
+    .expect("reading the layer's parameters");
     let by_name: std::collections::HashMap<&str, &[f32]> = values
         .iter()
         .map(|(n, v)| (n.as_str(), v.as_slice()))
@@ -1645,7 +1660,7 @@ fn test_layer_zero_query_and_bias_against_the_reference() {
         // build_attention wraps both of these in its own scope, and the slot names
         // the loader resolves come from the scope.
         let q = {
-            let _a = teeny_core::name_scope::name_scope("attn");
+            let _a = teeny_llm::models::inkling2::naming::name_scope("attn");
             build_q_proj::<f32>(&cfg, &g.first)
         };
         let got = g.run_many_from_checkpoint(&[&q], &[&normed], &mut ck, 0);
@@ -1656,7 +1671,7 @@ fn test_layer_zero_query_and_bias_against_the_reference() {
         let past = PastLen::default();
         past.set(0);
         let b = {
-            let _a = teeny_core::name_scope::name_scope("attn");
+            let _a = teeny_llm::models::inkling2::naming::name_scope("attn");
             build_rel_bias::<f32>(&cfg, &g.first, past, None)
         };
         let got = g.run_many_from_checkpoint(&[&b], &[&normed], &mut ck, 0);

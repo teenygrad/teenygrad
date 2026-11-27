@@ -30,10 +30,10 @@
 //! separately: a missing tensor found at resolve time names the slot, while one
 //! found at load time arrives as a failed read somewhere inside a step.
 
-use super::runner::checkpoint_name;
 use super::kernels::expert_gemv_nvfp4::{
     QBLOCK, ROWS, byte_scale_rows, interleave_row_bytes, interleave_rows,
 };
+use super::runner::checkpoint_name;
 use super::weights::{Checkpoint, Encoding, pack_rows};
 use crate::kernels::linear::{int8_name, interleave_lanes, pack_bf16_halves, quantize_lanes_i8};
 use crate::kernels::linear_ime::quantize_ime_i8;
@@ -95,7 +95,10 @@ pub fn resolve(slots: &[String], layer: usize) -> Vec<(String, Source)> {
 /// Where one slot of a layer comes from.
 fn resolve_slot(slot: &str, layer: usize) -> Source {
     // A packed bf16 weight reads whatever the plain `.weight` slot would.
-    if let Some(base) = slot.strip_suffix("_bf16").filter(|b| b.ends_with(".weight")) {
+    if let Some(base) = slot
+        .strip_suffix("_bf16")
+        .filter(|b| b.ends_with(".weight"))
+    {
         return Source::PackedBf16(Box::new(resolve_slot(base, layer)));
     }
     if let Some(stem) = slot.strip_suffix(".weight_ime") {
@@ -108,40 +111,34 @@ fn resolve_slot(slot: &str, layer: usize) -> Source {
         return Source::LanesBf16(Box::new(resolve_slot(&format!("{stem}.weight"), layer)));
     }
     match slot {
-                // The NVFP4 gathers ask for a folded scale by name; the MXFP8 ones
-                // keep their own E8M0 bytes under the plain `scale`.
-                // The MXFP8 projection's E8M0 scales are bytes per row, interleaved like
+        // The NVFP4 gathers ask for a folded scale by name; the MXFP8 ones
+        // keep their own E8M0 bytes under the plain `scale`.
+        // The MXFP8 projection's E8M0 scales are bytes per row, interleaved like
         // its weights.
         "mlp.experts.weight_rows"
         | "mlp.experts_down.weight_rows"
         | "mlp.experts.scale_rows"
-        | "mlp.experts_down.scale_rows" => {
-                    Source::InterleavedWeight(checkpoint_name(slot, layer))
-                }
-                "mlp.experts.byte_scale_rows" | "mlp.experts_down.byte_scale_rows" => {
-                    let name = checkpoint_name(slot, layer);
-                    Source::ByteScale(name.strip_suffix("_scale").unwrap_or(&name).to_string())
-                }
-                "mlp.experts.folded_scale_rows" | "mlp.experts_down.folded_scale_rows" => {
-                    let name = checkpoint_name(slot, layer);
-                    Source::InterleavedScale(
-                        name.strip_suffix("_scale").unwrap_or(&name).to_string(),
-                    )
-                }
-                "mlp.experts.folded_scale" | "mlp.experts_down.folded_scale" => {
-                    let name = checkpoint_name(slot, layer);
-                    Source::FoldedScale(name.strip_suffix("_scale").unwrap_or(&name).to_string())
-                }
-                "mlp.experts.scale2" | "mlp.experts_down.scale2" => {
-                    // checkpoint_name maps these to the amax tensor; the prefix is
-                    // that name without the suffix.
-                    let amax = checkpoint_name(slot, layer);
-                    Source::ExpertScale(amax.strip_suffix("_amax").unwrap_or(&amax).to_string())
-                }
-                "attn.rel_logits_proj.weight" => {
-                    Source::Transposed(checkpoint_name(slot, layer), 0)
-                }
-                other => Source::Tensor(checkpoint_name(other, layer)),
+        | "mlp.experts_down.scale_rows" => Source::InterleavedWeight(checkpoint_name(slot, layer)),
+        "mlp.experts.byte_scale_rows" | "mlp.experts_down.byte_scale_rows" => {
+            let name = checkpoint_name(slot, layer);
+            Source::ByteScale(name.strip_suffix("_scale").unwrap_or(&name).to_string())
+        }
+        "mlp.experts.folded_scale_rows" | "mlp.experts_down.folded_scale_rows" => {
+            let name = checkpoint_name(slot, layer);
+            Source::InterleavedScale(name.strip_suffix("_scale").unwrap_or(&name).to_string())
+        }
+        "mlp.experts.folded_scale" | "mlp.experts_down.folded_scale" => {
+            let name = checkpoint_name(slot, layer);
+            Source::FoldedScale(name.strip_suffix("_scale").unwrap_or(&name).to_string())
+        }
+        "mlp.experts.scale2" | "mlp.experts_down.scale2" => {
+            // checkpoint_name maps these to the amax tensor; the prefix is
+            // that name without the suffix.
+            let amax = checkpoint_name(slot, layer);
+            Source::ExpertScale(amax.strip_suffix("_amax").unwrap_or(&amax).to_string())
+        }
+        "attn.rel_logits_proj.weight" => Source::Transposed(checkpoint_name(slot, layer), 0),
+        other => Source::Tensor(checkpoint_name(other, layer)),
     }
 }
 
@@ -167,7 +164,9 @@ fn missing_tensor(ck: &Checkpoint, src: &Source) -> Option<String> {
             let stored = byte_scale_name(prefix);
             (!ck.has(&stored)).then_some(stored)
         }
-        Source::FoldedScale(prefix) | Source::InterleavedScale(prefix) | Source::ByteScale(prefix) => {
+        Source::FoldedScale(prefix)
+        | Source::InterleavedScale(prefix)
+        | Source::ByteScale(prefix) => {
             let scale = format!("{prefix}_scale");
             (!ck.has(&scale)).then_some(scale)
         }
@@ -185,9 +184,7 @@ fn missing_tensor(ck: &Checkpoint, src: &Source) -> Option<String> {
         Source::PackedBf16(inner)
         | Source::LanesBf16(inner)
         | Source::LanesI8(inner)
-        | Source::ImeI8(inner) => {
-            missing_tensor(ck, inner)
-        }
+        | Source::ImeI8(inner) => missing_tensor(ck, inner),
     }
 }
 
@@ -301,7 +298,10 @@ pub fn read_shared<'a>(
                 *private = Some(Checkpoint::open(ck.dir())?);
             }
             let own = private.as_mut().expect("opened above");
-            Ok((slot.clone(), Cow::Owned(read_source(own, &slot, &src, declared)?)))
+            Ok((
+                slot.clone(),
+                Cow::Owned(read_source(own, &slot, &src, declared)?),
+            ))
         })
         .collect()
 }
@@ -322,7 +322,9 @@ fn read_source(
             if let Source::Tensor(name) = inner.as_ref() {
                 let stored = bf16_name(name);
                 if ck.has(&stored) {
-                    return ck.param(&stored).map_err(|e| anyhow::anyhow!("slot {slot} reads {stored}: {e}"));
+                    return ck
+                        .param(&stored)
+                        .map_err(|e| anyhow::anyhow!("slot {slot} reads {stored}: {e}"));
                 }
             }
             let values = read_source(ck, slot, inner, declared)?;
@@ -338,7 +340,9 @@ fn read_source(
             if let Source::Tensor(name) = inner.as_ref() {
                 let stored = ime_name(name);
                 if ck.has(&stored) {
-                    return ck.param(&stored).map_err(|e| anyhow::anyhow!("slot {slot} reads {stored}: {e}"));
+                    return ck
+                        .param(&stored)
+                        .map_err(|e| anyhow::anyhow!("slot {slot} reads {stored}: {e}"));
                 }
             }
             let values = read_source(ck, slot, inner, &[n, k])?;
@@ -355,7 +359,9 @@ fn read_source(
             if let Source::Tensor(name) = inner.as_ref() {
                 let stored = int8_name(name);
                 if ck.has(&stored) {
-                    let buf = ck.param(&stored).map_err(|e| anyhow::anyhow!("slot {slot} reads {stored}: {e}"))?;
+                    let buf = ck
+                        .param(&stored)
+                        .map_err(|e| anyhow::anyhow!("slot {slot} reads {stored}: {e}"))?;
                     anyhow::ensure!(
                         buf.len() == n * (k / 4 + 1),
                         "slot {slot}: {stored} holds {} words, expected {}",
@@ -417,7 +423,9 @@ fn read_source(
         Source::ByteScale(prefix) => {
             let stored = byte_scale_name(prefix);
             if ck.has(&stored) {
-                return ck.param(&stored).map_err(|e| anyhow::anyhow!("slot {slot} reads {stored}: {e}"));
+                return ck
+                    .param(&stored)
+                    .map_err(|e| anyhow::anyhow!("slot {slot} reads {stored}: {e}"));
             }
             anyhow::ensure!(
                 !ck.is_converted(),
@@ -466,7 +474,6 @@ fn read_source(
         }
     })
 }
-
 
 /// The expert and row counts of a slot declared `[experts, rows, _]`.
 fn expert_rows(slot: &str, declared: &[usize]) -> anyhow::Result<(usize, usize)> {
