@@ -310,11 +310,23 @@ target features with a low-rank Markov head.
 - **The drafter works in a reference.** `scripts/inkling2-dspark-ref.py` is a PyTorch
   drafter replayed against the engine's own traces (`INKLING2_TRACE`). It accepts 1.6 of
   7 drafted tokens per step, using the target's visit *inputs* as features.
-- **On this board it breaks even at best.** Each extra token in a verify step cost
-  0.14 s against 0.43 s for one token, because each token routes to different experts.
+- **On the earlier build it broke even at best.** Each extra token in a verify step
+  cost 0.14 s against 0.43 s for one token, because each token routes to different experts.
   The drafter itself reads roughly 1 GB per draft, an estimate.
-- The drafter is not ported. The step costs on the current, faster build were not
-  re-measured before the board became unreachable.
+- **Re-measured on the current build, it loses.** Steps of N prompt tokens
+  (`--prompt-chunk N`, a 27-token prompt) cost:
+
+  | N | 1 | 2 | 3 | 4 | 8 |
+  |---|---|---|---|---|---|
+  | step | 0.32 s | 0.48 s | 0.62 s | 0.75 s | 1.39 s |
+
+  Each extra token still adds about 0.15 s, half a plain step. 1.6 accepted of 7 fits a
+  per-token acceptance of about 0.62. Verifying 1, 2 or 3 drafts would then give
+  1.6, 2.0 or 2.3 tokens per step: 3.4, 3.3 or 3.0 tokens/s with a free drafter, and
+  2.9, 2.9 or 2.8 with the drafter's ~70 ms. Plain decoding is 3.1 to 3.3 tokens/s.
+  So the drafter is not ported. It would pay only once an extra verify token costs
+  well under a third of a plain step, which needs experts that are shared across
+  tokens or cheaper to read.
 
 ## Where the time goes now
 
@@ -408,8 +420,6 @@ without it.
   build, beyond greedy text.
 - **Why the attention fusion did not speed decode up.** Its per-op profile did not
   finish.
-- **DSpark port:** re-measure verify step costs on the current build, then port the
-  drafter if the estimate beats plain decoding.
 - **More fusions from SGLang** (above), about 30 ms a token in all.
 - **Experts on the A100 matrix engine** would need re-quantising them to int4 with block
   scales, which needs a quality check first.
