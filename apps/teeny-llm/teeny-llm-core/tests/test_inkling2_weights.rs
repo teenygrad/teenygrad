@@ -446,6 +446,24 @@ fn layer_slots(layer: usize, nvfp4: bool, dynamic: bool, looped: bool) -> Vec<St
 /// Every slot of every step of a full plan resolves to a tensor the real checkpoint
 /// has. This is the check the first real load would otherwise perform, one failure
 /// at a time, somewhere inside a step.
+/// The checkpoint tensors a slot's source reads. A wrapper (bf16 packing, the
+/// int8 layouts) reads what its inner source reads; the NVFP4 scales need the block
+/// scale and both halves of the per-expert one, which the loader multiplies.
+fn needed_tensors(src: &Source) -> Vec<String> {
+    match src {
+        Source::Tensor(n) | Source::Transposed(n, _) | Source::InterleavedWeight(n) => vec![n.clone()],
+        Source::ExpertScale(p) => vec![format!("{p}_amax"), format!("{p}_outer_scale_denominator")],
+        Source::FoldedScale(p) | Source::InterleavedScale(p) | Source::ByteScale(p) => vec![
+            format!("{p}_scale"),
+            format!("{p}_amax"),
+            format!("{p}_outer_scale_denominator"),
+        ],
+        Source::PackedBf16(inner) | Source::LanesBf16(inner) | Source::LanesI8(inner) | Source::ImeI8(inner) => {
+            needed_tensors(inner)
+        }
+    }
+}
+
 #[test]
 fn test_a_whole_plan_resolves_against_the_real_index() {
     let text = std::fs::read_to_string(fixtures().join("inkling2-mini-index.json"))
@@ -470,19 +488,7 @@ fn test_a_whole_plan_resolves_against_the_real_index() {
         let slots = layer_slots(step.layer, nvfp4, dynamic, step.pass.is_some());
         for (slot, src) in resolve(&slots, step.layer) {
             checked += 1;
-            let needed: Vec<String> = match src {
-                Source::Tensor(n) | Source::Transposed(n, _) => vec![n],
-                Source::ExpertScale(p) => {
-                    vec![format!("{p}_amax"), format!("{p}_outer_scale_denominator")]
-                }
-                // The folded scale needs the block scale and both halves of the
-                // per-expert one, since the loader multiplies them together.
-                Source::FoldedScale(p) => vec![
-                    format!("{p}_scale"),
-                    format!("{p}_amax"),
-                    format!("{p}_outer_scale_denominator"),
-                ],
-            };
+            let needed = needed_tensors(&src);
             for n in needed {
                 if !names.contains(&n) {
                     missing.push(format!("layer {} slot {slot} -> {n}", step.layer));

@@ -48,10 +48,10 @@ use teeny_llm_core::models::inkling2::kernels::{
     mix::MessageMixOp,
     norm::{RmsNormOp, UnweightedRmsNormOp},
     nvfp4::{Nvfp4DequantOp, UnpackByteOp},
-    rel_bias::RelBiasOp,
+    rel_bias::{RelBiasFusedOp, RelBiasOp},
     router::TopKRouterOp,
     scatter_add::ExpertScatterAddOp,
-    sconv::SconvOp,
+    sconv::{Post, SconvOp},
     softcap::SoftcapOp,
     swiglu::SwigluOp,
 };
@@ -1725,6 +1725,103 @@ fn test_dyn_sconv_matches_the_reference() {
         &[&stat],
     );
     assert_close("dyn sconv", &got, &want, 1e-4);
+}
+
+/// Each head of a convolution's output after the keys' L2 clip or the values'
+/// unweighted RMS norm, as the separate ops compute them.
+fn post_heads(y: &[f32], hd: usize, post: Post) -> Vec<f32> {
+    y.chunks(hd)
+        .flat_map(|h| {
+            let ss: f32 = h.iter().map(|v| v * v).sum();
+            let f = match post {
+                Post::L2Clip { threshold, .. } => (threshold / (ss.sqrt() + 1e-6)).min(1.0),
+                Post::Rms { .. } => 1.0 / (ss / hd as f32 + 1e-6).sqrt(),
+                Post::None => 1.0,
+            };
+            h.iter().map(move |v| v * f).collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+/// The fused relative bias computes what the clip, the projection and the gather
+/// compute: past keys, several tokens, heads that clip and heads that do not, keys
+/// after each query zero, and a width pinned past the last query.
+#[test]
+fn test_fused_rel_bias_matches_the_reference() {
+    let (t, heads, dr, extent, past, width) = (3usize, 3usize, 16usize, 300usize, 5usize, 12usize);
+    // Head 0's values are large enough to clip; the others are not.
+    let x: Vec<f32> = values(t * heads * dr, 651)
+        .iter()
+        .enumerate()
+        .map(|(i, v)| if (i / dr) % heads == 0 { v * 4.0 } else { v * 0.2 })
+        .collect();
+    let scale: Vec<f32> = values(heads * dr, 652).iter().map(|v| 0.5 + v.abs()).collect();
+    let proj = values(dr * extent, 653);
+    let thr = 1.5f32;
+    let mut want = vec![0.0f32; t * heads * width];
+    for tok in 0..t {
+        for h in 0..heads {
+            let r: Vec<f32> = (0..dr).map(|d| x[(tok * heads + h) * dr + d] * scale[h * dr + d]).collect();
+            let norm = r.iter().map(|v| v * v).sum::<f32>().sqrt();
+            let ratio = (thr / (norm + 1e-6)).min(1.0);
+            let pos = past + tok;
+            for j in 0..width {
+                if j <= pos && pos - j < extent {
+                    let dist = pos - j;
+                    want[(tok * heads + h) * width + j] =
+                        (0..dr).map(|d| proj[d * extent + dist] * r[d]).sum::<f32>() * ratio;
+                }
+            }
+        }
+    }
+    let past_len = PastLen::default();
+    past_len.set(past);
+    let got = OneOp::new(&[t, heads * dr]).run(
+        RelBiasFusedOp::<f32>::new(heads, dr, extent, thr, past_len, Some(width)),
+        &[],
+        &[&x],
+        &[&scale, &proj],
+    );
+    assert_close("fused rel bias", &got, &want, 1e-4);
+}
+
+/// A convolution with a post-op computes the plain convolution followed by the
+/// clip or norm, static and dynamic, over several tokens and heads; the threshold
+/// is low enough that most heads clip.
+#[test]
+fn test_sconv_post_ops_match_the_separate_ops() {
+    const K: usize = 4;
+    let (t, heads, hd) = (3usize, 3usize, 16usize);
+    let c = heads * hd;
+    let hist = values((K - 1) * c, 641);
+    let x = values(t * c, 642);
+    let w = values(c * K, 643);
+    let dynw = values(t * heads * K, 644);
+    let stat = values(K * c, 645);
+    for post in [Post::L2Clip { head_dim: hd, threshold: 0.5 }, Post::Rms { head_dim: hd }] {
+        let g = OneOp::new(&[K - 1, c]);
+        let x_in = g.input(&[t, c]);
+        let plain = g.run(SconvOp::<f32>::new(c, K), &[&x_in], &[&hist, &x], &[&w]);
+        let g = OneOp::new(&[K - 1, c]);
+        let x_in = g.input(&[t, c]);
+        let got = g.run(SconvOp::<f32>::with_post(c, K, post), &[&x_in], &[&hist, &x], &[&w]);
+        assert_close(&format!("sconv {post:?}"), &got, &post_heads(&plain, hd, post), 1e-5);
+
+        let g = OneOp::new(&[K - 1, c]);
+        let x_in = g.input(&[t, c]);
+        let d_in = g.input(&[t, heads * K]);
+        let plain = g.run(DynSconvOp::<f32>::new(c, heads, K), &[&x_in, &d_in], &[&hist, &x, &dynw], &[&stat]);
+        let g = OneOp::new(&[K - 1, c]);
+        let x_in = g.input(&[t, c]);
+        let d_in = g.input(&[t, heads * K]);
+        let got = g.run(
+            DynSconvOp::<f32>::with_post(c, heads, K, post),
+            &[&x_in, &d_in],
+            &[&hist, &x, &dynw],
+            &[&stat],
+        );
+        assert_close(&format!("dyn sconv {post:?}"), &got, &post_heads(&plain, hd, post), 1e-5);
+    }
 }
 
 /// Tap 0 is the CURRENT token, the opposite of the static convolution. With only tap

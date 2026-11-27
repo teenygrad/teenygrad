@@ -185,6 +185,8 @@ pub fn checkpoint_name(slot: &str, layer: usize) -> String {
             format!("{prefix}{head}.{last}_weight")
         }
         "attn.rel_logits_proj.weight" => format!("{prefix}attn.rel_logits_proj.proj"),
+        // The fused bias reads the same projection, untransposed, beside its clip.
+        "attn.rel_l2_clip.proj" => format!("{prefix}attn.rel_logits_proj.proj"),
         // The dynamic convolutions of the last layer of each block: the projection's
         // slot gains a `.weight` the checkpoint does not have, and `static_w` is
         // stored under the convolution rather than beside it.

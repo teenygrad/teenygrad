@@ -59,15 +59,14 @@ use super::kernels::{
     expert_gemv_mxfp8::ExpertGemvMxfp8Op,
     expert_gemv_nvfp4::{ExpertGemvNvfp4Op, QuantRowsQ8Op},
     gated_mul::GatedMulOp,
-    l2_clip::{L2ClipOp, ScaledL2ClipOp},
+    l2_clip::ScaledL2ClipOp,
     mix::MessageMixOp,
     norm::{RmsNormOp, UnweightedRmsNormOp},
-    regroup::RegroupOp,
-    rel_bias::RelBiasOp,
+    rel_bias::RelBiasFusedOp,
     router::TopKRouterOp,
     scale::ScaleOp,
     scatter_add::ExpertScatterAddOp,
-    sconv::SconvOp,
+    sconv::{Post, SconvOp},
     slot_ids::SlotIdsOp,
     softcap::SoftcapOp,
     swiglu::SwigluOp,
@@ -311,7 +310,8 @@ pub fn build_q_proj<D: FloatBytes + Send + Sync + 'static>(
     )
 }
 
-/// Records the key or value projection: linear, short convolution, then the norm.
+/// Records the key or value projection: linear, then the short convolution with the
+/// norm in its epilogue.
 ///
 /// The two differ only in that norm: keys take an **unscaled** L2 clip, values an
 /// unweighted RMS norm. Neither has a learned scale, unlike the query's clip.
@@ -332,6 +332,13 @@ pub fn build_kv_proj<D: FloatBytes + Send + Sync + 'static>(
         let _g = name_scope(name);
         linear::<D>(x, cfg.hidden_size, nkv * hd)
     };
+    // Keys end in an unscaled L2 clip, values in an unweighted RMS norm; both run in
+    // the convolution's own program.
+    let post = if is_key {
+        Post::L2Clip { head_dim: hd, threshold: cfg.qk_l2_clip_threshold as f32 }
+    } else {
+        Post::Rms { head_dim: hd }
+    };
     let conv = {
         let _g = name_scope(if is_key { "k_sconv" } else { "v_sconv" });
         match dynamic {
@@ -342,13 +349,13 @@ pub fn build_kv_proj<D: FloatBytes + Send + Sync + 'static>(
                     linear::<D>(src, cfg.hidden_size, nkv * cfg.sconv_kernel_size)
                 };
                 hist.record_custom(
-                    CustomData::new(DynSconvOp::<D>::new(nkv * hd, nkv, cfg.sconv_kernel_size)),
+                    CustomData::new(DynSconvOp::<D>::with_post(nkv * hd, nkv, cfg.sconv_kernel_size, post)),
                     &[&proj, &taps],
                     None,
                 )
             }
             None => hist.record_custom(
-                CustomData::new(SconvOp::<D>::new(nkv * hd, cfg.sconv_kernel_size)),
+                CustomData::new(SconvOp::<D>::with_post(nkv * hd, cfg.sconv_kernel_size, post)),
                 &[&proj],
                 None,
             ),
@@ -356,20 +363,7 @@ pub fn build_kv_proj<D: FloatBytes + Send + Sync + 'static>(
     };
     // The pre-convolution projection comes back too: it is what the convolution's
     // state carries into the next token, and the host cannot recover it from the output.
-    let out = if is_key {
-        conv.record_custom(
-            CustomData::new(L2ClipOp::<D>::new(hd, cfg.qk_l2_clip_threshold as f32)),
-            &[],
-            None,
-        )
-    } else {
-        conv.record_custom(
-            CustomData::new(UnweightedRmsNormOp::<D>::new(hd)),
-            &[],
-            None,
-        )
-    };
-    (proj, out)
+    (proj, conv)
 }
 
 /// Records the gated output projection.
@@ -402,8 +396,8 @@ pub fn build_norm<D: FloatBytes + Send + Sync + 'static>(
     x.record_custom(CustomData::new(RmsNormOp::<D>::new(width)), &[], None)
 }
 
-/// Records the relative position bias: linear, scaled clip, profile projection, then
-/// the gather onto key positions.
+/// Records the relative position bias: the linear, then the scaled clip, profile
+/// projection and gather onto key positions in one kernel.
 pub fn build_rel_bias<D: FloatBytes + Send + Sync + 'static>(
     cfg: &Inkling2TextConfig,
     x: &SymTensor,
@@ -415,27 +409,18 @@ pub fn build_rel_bias<D: FloatBytes + Send + Sync + 'static>(
         let _g = name_scope("wr_du");
         linear::<D>(x, cfg.hidden_size, nh * dr)
     };
-    let rel = {
-        let _g = name_scope("rel_l2_clip");
-        rel.record_custom(
-            CustomData::new(ScaledL2ClipOp::<D>::new(
-                nh,
-                dr,
-                cfg.rel_l2_clip_threshold as f32,
-            )),
-            &[],
-            None,
-        )
-    };
-    // The projection is per head, so the matmul's rows are (token, head) pairs:
-    // [T, heads * d_rel] regrouped to [T * heads, d_rel].
-    let rel = rel.record_custom(CustomData::new(RegroupOp::<D>::new(nh)), &[], None);
-    let logits = {
-        let _g = name_scope("rel_logits_proj");
-        linear::<D>(&rel, dr, cfg.rel_extent)
-    };
-    logits.record_custom(
-        CustomData::new(RelBiasOp::<D>::with_width(nh, cfg.rel_extent, past, width)),
+    // Clip, projection and gather in one kernel; the projection is read in the
+    // checkpoint's own [d_rel, rel_extent] layout.
+    let _g = name_scope("rel_l2_clip");
+    rel.record_custom(
+        CustomData::new(RelBiasFusedOp::<D>::new(
+            nh,
+            dr,
+            cfg.rel_extent,
+            cfg.rel_l2_clip_threshold as f32,
+            past,
+            width,
+        )),
         &[],
         None,
     )
