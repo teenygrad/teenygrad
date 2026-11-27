@@ -32,6 +32,7 @@ use teeny_llm::kernels::linear::{
     Linear4Bf16Op, Linear4Op, LinearLanesBf16Op, LinearLanesI8Op, interleave_lanes,
     pack_bf16_halves, quantize_lanes_i8,
 };
+use teeny_llm::kernels::linear_i4::{I4_GROUP, I4_LANES, LinearLanesI4Op, quantize_lanes_i4};
 use teeny_llm::models::inkling2::kernels::{
     attention::{AttentionSpec, PastLen, SinkAttentionOp},
     block_attn::BlockAttnOp,
@@ -2513,6 +2514,31 @@ fn test_int8_lanes_linear_matches_the_f32_linear_on_dequantised_weights() {
         let want = OneOp::new(&[m, k]).run(Linear4Op::<f32>::new(k, n, 16), &[], &[&x], &[&deq]);
         let got = OneOp::new(&[m, k]).run(LinearLanesI8Op::<f32>::new(k, n), &[], &[&x], &[&buf]);
         assert_close(&format!("int8 lanes linear, {m} rows"), &got, &want, 1e-5);
+    }
+}
+
+/// The int4 lanes linear computes what the f32 linear does on the same weights rounded
+/// to their int4 grid, a scale per row and group of inputs, at every row count the
+/// row tiling treats differently.
+#[test]
+fn test_int4_lanes_linear_matches_the_f32_linear_on_dequantised_weights() {
+    let (k, n) = (2 * I4_GROUP, 64usize);
+    let w = values(n * k, 631);
+    let buf = quantize_lanes_i4(&w, n, k).expect("int4 quantise");
+    let scales = &buf[n * k / 8..];
+    let groups = k / I4_GROUP;
+    let deq: Vec<f32> = (0..n * k)
+        .map(|i| {
+            let (r, c) = (i / k, i % k);
+            let s = scales[((r / I4_LANES) * groups + c / I4_GROUP) * I4_LANES + r % I4_LANES];
+            (w[i] / s).round().clamp(-7.0, 7.0) * s
+        })
+        .collect();
+    for m in [1usize, 2, 4, 5] {
+        let x = values(m * k, 632 + m as u64);
+        let want = OneOp::new(&[m, k]).run(Linear4Op::<f32>::new(k, n, 16), &[], &[&x], &[&deq]);
+        let got = OneOp::new(&[m, k]).run(LinearLanesI4Op::<f32>::new(k, n), &[], &[&x], &[&buf]);
+        assert_close(&format!("int4 lanes linear, {m} rows"), &got, &want, 1e-5);
     }
 }
 
