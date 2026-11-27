@@ -30,6 +30,20 @@ functiongemma3 = [
 ]
 # Hugging Face tokenizers (`tokenizer::HfTokenizer`), for models that ship a tokenizer.json.
 hf-tokenizer = ["dep:tokenizers"]
+# Inkling-2 (thinkingmachines/Inkling-2-Mini). Needs a backend, as functiongemma does.
+inkling2 = [
+  "kernels",
+  "dep:anyhow",
+  "dep:half",
+  "dep:memmap2",
+  "dep:minijinja",
+  "dep:minijinja-contrib",
+  "dep:safetensors",
+  "dep:serde",
+  "dep:teeny-kernels",
+  "dep:teeny-test",
+  "hf-tokenizer",
+]
 # The kernels shared between models (`teeny_llm::kernels`). Enabled by every model
 # feature; on its own it builds the kernels without any model.
 kernels = ["dep:teeny-core", "dep:teeny-kvcache", "dep:teeny-macros", "dep:teeny-triton"]
@@ -50,6 +64,7 @@ half = { workspace = true, optional = true }
 minijinja = { workspace = true, optional = true }
 minijinja-contrib = { workspace = true, optional = true }
 safetensors = { workspace = true, optional = true }
+memmap2 = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
 teeny-core = { workspace = true, features = ["std"], optional = true }
 teeny-kvcache = { workspace = true, optional = true }
@@ -72,6 +87,14 @@ tokio = { workspace = true }
 [[example]]
 name = "chat"
 required-features = ["functiongemma3"]
+
+[[example]]
+name = "inkling2_convert"
+required-features = ["inkling2"]
+
+[[example]]
+name = "inkling2"
+required-features = ["inkling2"]
 
 [[test]]
 name = "test_functiongemma"

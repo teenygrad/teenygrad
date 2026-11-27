@@ -35,6 +35,10 @@ mod elf;
 pub mod errors;
 #[cfg(any(target_arch = "riscv64", test))]
 mod native;
+// Used by the native launcher, which exists only on riscv64; built everywhere so its
+// tests run on any host.
+#[cfg_attr(not(target_arch = "riscv64"), allow(dead_code))]
+mod spin_pool;
 #[cfg(all(feature = "qemu", not(target_arch = "riscv64")))]
 mod qemu;
 /// Loading and calling a compiled kernel's shared library.

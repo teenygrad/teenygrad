@@ -109,11 +109,7 @@ impl<'a, N: Num> RiscvBuffer<'a, N> {
     }
 
     fn allocate(count: usize, registry: Option<Arc<BufferRegistry>>) -> Self {
-        // Safety: every `Num` impl in this codebase is a plain numeric type (integers, floats)
-        // whose all-zero bit pattern is a valid value.
-        let data = (0..count)
-            .map(|_| UnsafeCell::new(unsafe { std::mem::zeroed::<N>() }))
-            .collect();
+        let data = zeroed_cells::<N>(count);
         let buffer = Self {
             data,
             registry,
@@ -146,6 +142,28 @@ impl<'a, N: Num> RiscvBuffer<'a, N> {
     /// buffer type. A launched kernel may write through it.
     pub fn as_device_ptr(&self) -> *mut N {
         UnsafeCell::raw_get(self.data.as_ptr())
+    }
+}
+
+/// `count` zeroed cells straight from the allocator. For a large buffer that is fresh
+/// pages the kernel zeroes as they are first touched, so a model's gigabytes of
+/// parameters cost nothing until they are written; writing a zero into each element
+/// first touched every page twice.
+fn zeroed_cells<N: Num>(count: usize) -> Vec<UnsafeCell<N>> {
+    let layout = match std::alloc::Layout::array::<UnsafeCell<N>>(count) {
+        Ok(layout) if layout.size() > 0 => layout,
+        _ => return Vec::new(),
+    };
+    // Safety: the layout has a non-zero size. Every `Num` impl in this codebase is a
+    // plain numeric type whose all-zero bit pattern is a valid value, and
+    // `UnsafeCell<N>` has `N`'s layout, so the zeroed block is `count` valid cells,
+    // allocated by the global allocator with the layout `Vec` will free it with.
+    unsafe {
+        let ptr = std::alloc::alloc_zeroed(layout).cast::<UnsafeCell<N>>();
+        if ptr.is_null() {
+            std::alloc::handle_alloc_error(layout);
+        }
+        Vec::from_raw_parts(ptr, count, count)
     }
 }
 

@@ -155,6 +155,14 @@ pub trait RuntimeOp: Send + Sync {
     /// Number of CTAs to launch (x, y, z), given the concrete output shape.
     fn grid(&self, output_shape: &[usize]) -> [u32; 3];
 
+    /// A prebuilt kernel library to launch instead of compiling the op's kernel
+    /// source: for kernels the kernel compiler cannot express, such as ones using a
+    /// vendor's matrix instructions. The library exports one `*_entry_point`, with the
+    /// same calling convention as a compiled kernel's. `None` (the default) compiles.
+    fn native_library(&self) -> Option<std::path::PathBuf> {
+        None
+    }
+
     /// Number of sequential kernel launches this op requires.
     ///
     /// Ops like channel-cat scatter N input chunks into one output buffer and

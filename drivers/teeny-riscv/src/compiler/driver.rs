@@ -52,7 +52,8 @@ pub fn compile_kernel(
             target
                 .target_cpu()
                 .expect("Target::target_cpu is always Some"),
-        );
+        )
+        .with_target_features(target.capability.target_features().iter().copied());
     if debug {
         compiler = compiler.with_log_level(LogLevel::Debug);
     }

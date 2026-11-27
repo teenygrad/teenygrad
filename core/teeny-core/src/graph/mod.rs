@@ -1946,7 +1946,10 @@ impl Graph {
 // Shape inference — computes the output shape for each Op given an input shape
 // ---------------------------------------------------------------------------
 
-fn infer_output_shape(op: &Op, inputs: &[&Shape]) -> Shape {
+/// The output shape of `op` given its inputs' shapes, `None` where a dimension is
+/// not known from them. Public so a compiled graph can re-resolve its shapes for
+/// a new row count.
+pub fn infer_output_shape(op: &Op, inputs: &[&Shape]) -> Shape {
     // Constant has no tensor inputs — its shape is embedded in the op itself.
     if let Op::Constant { shape, .. } = op {
         return shape.clone();

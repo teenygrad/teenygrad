@@ -227,7 +227,10 @@ mod launcher {
     use anyhow::{Result, anyhow, bail};
     use teeny_core::device::program::KernelArgs;
 
+    use std::time::Duration;
+
     use super::{Frame, STACK_SLOTS, SlotCollector};
+    use crate::spin_pool::SpinPool;
     use crate::runtime::KernelLibrary;
 
     /// Every kernel entry point, called with all eight `a` registers, all eight `fa` registers
@@ -268,18 +271,48 @@ mod launcher {
 
     /// Kernel libraries this process has loaded, by path. A library stays loaded for the rest
     /// of the process, so every launch after the first is just a lookup.
+    ///
+    /// Resolved entry points are cached too, so a launch after the first costs one map
+    /// lookup rather than a `dlsym` string search.
     #[derive(Default)]
-    pub(crate) struct Libraries(Mutex<HashMap<PathBuf, Arc<KernelLibrary>>>);
+    pub(crate) struct Libraries(Mutex<LoadedLibraries>);
+
+    #[derive(Default)]
+    pub(crate) struct LoadedLibraries {
+        libraries: HashMap<PathBuf, Arc<KernelLibrary>>,
+        entries: HashMap<(PathBuf, String), Entry>,
+    }
 
     impl Libraries {
+        /// The entry point `name` of the kernel library at `path`, loading the library
+        /// on first use.
+        fn entry(&self, path: &Path, name: &str) -> Result<Entry> {
+            let key = (path.to_path_buf(), name.to_string());
+            if let Some(entry) = self.0.lock().unwrap_or_else(PoisonError::into_inner).entries.get(&key) {
+                return Ok(*entry);
+            }
+            let library = self.get(path)?;
+            // Safety: the entry point TritonCPU generated takes the kernel's own arguments,
+            // then the program id and grid, which is what the launcher's frame lays out.
+            // The library stays loaded for the rest of the process (it is never removed
+            // from the map), so the pointer stays valid.
+            let entry: Entry = unsafe { std::mem::transmute(library.symbol(name)?) };
+            self.0
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .entries
+                .insert(key, entry);
+            Ok(entry)
+        }
+
         fn get(&self, path: &Path) -> Result<Arc<KernelLibrary>> {
-            let mut libraries = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-            if let Some(library) = libraries.get(path) {
+            let mut loaded = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+            if let Some(library) = loaded.libraries.get(path) {
                 return Ok(Arc::clone(library));
             }
             load_libm()?;
             let library = Arc::new(KernelLibrary::load(path)?);
-            libraries.insert(path.to_path_buf(), Arc::clone(&library));
+            loaded.libraries.insert(path.to_path_buf(), Arc::clone(&library));
             Ok(library)
         }
     }
@@ -301,12 +334,16 @@ mod launcher {
     }
 
     /// The threads launches spread their program ids over, created once:
-    /// `TEENY_RISCV_THREADS` of them (default: every core the process may use). The last
-    /// `TEENY_RISCV_AI_THREADS` (default 0) move to the SpacemiT K3's A100 "AI" cores at
-    /// startup, so one process can use both core types: on a K3, 16 and 8 put threads on
-    /// all 16 cores.
-    fn pool() -> &'static rayon::ThreadPool {
-        static POOL: OnceLock<rayon::ThreadPool> = OnceLock::new();
+    /// `TEENY_RISCV_THREADS` of them counting the launching thread (default: every core
+    /// the process may use). The last `TEENY_RISCV_AI_THREADS` (default 0) move to the
+    /// SpacemiT K3's A100 "AI" cores at startup, so one process can use both core
+    /// types: on a K3, 16 and 8 put threads on all 16 cores.
+    ///
+    /// Workers spin for `TEENY_RISCV_SPIN_US` microseconds (default 200) after a job
+    /// before sleeping, so the thousands of short launches a model step makes reach
+    /// awake threads instead of paying an OS wake-up each; see [`SpinPool`].
+    fn pool() -> &'static SpinPool {
+        static POOL: OnceLock<SpinPool> = OnceLock::new();
         POOL.get_or_init(|| {
             let env = |name: &str| {
                 std::env::var(name)
@@ -317,18 +354,44 @@ mod launcher {
                 .or_else(|| std::thread::available_parallelism().ok().map(Into::into))
                 .unwrap_or(1)
                 .max(1);
-            let ai = env("TEENY_RISCV_AI_THREADS").unwrap_or(0).min(threads);
-            rayon::ThreadPoolBuilder::new()
-                .num_threads(threads)
-                .thread_name(|i| format!("teeny-riscv-{i}"))
-                .start_handler(move |i| {
-                    if i >= threads - ai {
-                        move_to_ai_cores();
-                    }
-                })
-                .build()
-                .expect("creating the RISC-V launcher's thread pool")
+            let ai = env("TEENY_RISCV_AI_THREADS").unwrap_or(0).min(threads - 1);
+            let spin = Duration::from_micros(env("TEENY_RISCV_SPIN_US").unwrap_or(200) as u64);
+            // Workers are the threads after the caller; the last `ai` of them move.
+            let workers = threads - 1;
+            SpinPool::new(threads, spin, move |i| {
+                if i >= workers - ai {
+                    move_to_ai_cores();
+                }
+            })
         })
+    }
+
+    /// Workers on the SpacemiT K3's A100 cores for kernels that use their matrix
+    /// instructions, created on the first such launch: `TEENY_RISCV_A100_THREADS`
+    /// workers (default 8, the cluster's cores). The launching thread only waits, since
+    /// it runs on an X100 core.
+    fn a100_pool() -> &'static SpinPool {
+        static POOL: OnceLock<SpinPool> = OnceLock::new();
+        POOL.get_or_init(|| {
+            let workers = std::env::var("TEENY_RISCV_A100_THREADS")
+                .ok()
+                .and_then(|v| v.parse::<usize>().ok())
+                .unwrap_or(8)
+                .max(1);
+            let spin = Duration::from_micros(
+                std::env::var("TEENY_RISCV_SPIN_US")
+                    .ok()
+                    .and_then(|v| v.parse::<u64>().ok())
+                    .unwrap_or(200),
+            );
+            SpinPool::new(workers + 1, spin, |_| move_to_ai_cores())
+        })
+    }
+
+    /// Whether `entry_point` is a kernel for the K3's A100 cores, by name:
+    /// `*_a100_entry_point`.
+    fn runs_on_a100(entry_point: &str) -> bool {
+        entry_point.ends_with("_a100_entry_point")
     }
 
     /// Moves the calling thread to the K3's A100 cores, through SpacemiT's
@@ -372,15 +435,13 @@ mod launcher {
             );
         };
 
-        let library = libraries.get(library)?;
-        // Safety: the entry point TritonCPU generated takes the kernel's own arguments, then the
-        // program id and grid, which is exactly what `frame` was laid out for.
-        let entry: Entry = unsafe { std::mem::transmute(library.symbol(entry_point)?) };
+        let entry = libraries.entry(library, entry_point)?;
 
         let [gx, gy, gz] = grid.map(u64::from);
         let total = gx * gy * gz;
-        let pool = pool();
-        let threads = (pool.current_num_threads() as u64).min(total).max(1);
+        let a100 = runs_on_a100(entry_point);
+        let pool = if a100 { a100_pool() } else { pool() };
+        let threads = if a100 { pool.workers() as u64 } else { (pool.threads() as u64).min(total).max(1) };
         let next = AtomicU64::new(0);
         let run = || {
             let mut frame = frame.clone();
@@ -399,12 +460,14 @@ mod launcher {
                 }
             }
         };
-        if threads == 1 {
+        if a100 {
+            pool.run_on_workers(&run);
+        } else if threads == 1 {
             run();
         } else {
             // Every pool thread pulls chunks until none are left, so slower threads (A100
             // cores next to X100 ones) simply take fewer.
-            pool.broadcast(|_| run());
+            pool.run(&run);
         }
         Ok(())
     }

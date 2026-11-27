@@ -1,0 +1,706 @@
+{
+ "tensors": {
+  "rms_norm.in.x": {
+   "offset": 0,
+   "len": 192
+  },
+  "rms_norm.in.x.shape": {
+   "dims": [
+    1,
+    6,
+    32
+   ]
+  },
+  "rms_norm.w.weight": {
+   "offset": 192,
+   "len": 32
+  },
+  "rms_norm.w.weight.shape": {
+   "dims": [
+    32
+   ]
+  },
+  "rms_norm.out": {
+   "offset": 224,
+   "len": 192
+  },
+  "rms_norm.out.shape": {
+   "dims": [
+    1,
+    6,
+    32
+   ]
+  },
+  "unweighted_rms_norm.in.x": {
+   "offset": 416,
+   "len": 192
+  },
+  "unweighted_rms_norm.in.x.shape": {
+   "dims": [
+    1,
+    6,
+    32
+   ]
+  },
+  "unweighted_rms_norm.out": {
+   "offset": 608,
+   "len": 192
+  },
+  "unweighted_rms_norm.out.shape": {
+   "dims": [
+    1,
+    6,
+    32
+   ]
+  },
+  "softcap.in.x": {
+   "offset": 800,
+   "len": 192
+  },
+  "softcap.in.x.shape": {
+   "dims": [
+    1,
+    6,
+    32
+   ]
+  },
+  "softcap.out": {
+   "offset": 992,
+   "len": 192
+  },
+  "softcap.out.shape": {
+   "dims": [
+    1,
+    6,
+    32
+   ]
+  },
+  "swiglu.in.gate": {
+   "offset": 1184,
+   "len": 72
+  },
+  "swiglu.in.gate.shape": {
+   "dims": [
+    1,
+    6,
+    12
+   ]
+  },
+  "swiglu.in.up": {
+   "offset": 1256,
+   "len": 72
+  },
+  "swiglu.in.up.shape": {
+   "dims": [
+    1,
+    6,
+    12
+   ]
+  },
+  "swiglu.out": {
+   "offset": 1328,
+   "len": 72
+  },
+  "swiglu.out.shape": {
+   "dims": [
+    1,
+    6,
+    12
+   ]
+  },
+  "l2_clip.in.x": {
+   "offset": 1400,
+   "len": 192
+  },
+  "l2_clip.in.x.shape": {
+   "dims": [
+    1,
+    6,
+    4,
+    8
+   ]
+  },
+  "l2_clip.out": {
+   "offset": 1592,
+   "len": 192
+  },
+  "l2_clip.out.shape": {
+   "dims": [
+    1,
+    6,
+    4,
+    8
+   ]
+  },
+  "scaled_l2_clip.in.x": {
+   "offset": 1784,
+   "len": 192
+  },
+  "scaled_l2_clip.in.x.shape": {
+   "dims": [
+    1,
+    6,
+    4,
+    8
+   ]
+  },
+  "scaled_l2_clip.w.scale": {
+   "offset": 1976,
+   "len": 32
+  },
+  "scaled_l2_clip.w.scale.shape": {
+   "dims": [
+    4,
+    8
+   ]
+  },
+  "scaled_l2_clip.out": {
+   "offset": 2008,
+   "len": 192
+  },
+  "scaled_l2_clip.out.shape": {
+   "dims": [
+    1,
+    6,
+    4,
+    8
+   ]
+  },
+  "log_scaled_l2_clip.in.x": {
+   "offset": 2200,
+   "len": 96
+  },
+  "log_scaled_l2_clip.in.x.shape": {
+   "dims": [
+    1,
+    6,
+    4,
+    4
+   ]
+  },
+  "log_scaled_l2_clip.in.position_ids": {
+   "offset": 2296,
+   "len": 6
+  },
+  "log_scaled_l2_clip.in.position_ids.shape": {
+   "dims": [
+    1,
+    6
+   ]
+  },
+  "log_scaled_l2_clip.w.scale": {
+   "offset": 2302,
+   "len": 16
+  },
+  "log_scaled_l2_clip.w.scale.shape": {
+   "dims": [
+    4,
+    4
+   ]
+  },
+  "log_scaled_l2_clip.out": {
+   "offset": 2318,
+   "len": 96
+  },
+  "log_scaled_l2_clip.out.shape": {
+   "dims": [
+    1,
+    6,
+    4,
+    4
+   ]
+  },
+  "rel_bias.in.x": {
+   "offset": 2414,
+   "len": 192
+  },
+  "rel_bias.in.x.shape": {
+   "dims": [
+    1,
+    6,
+    32
+   ]
+  },
+  "rel_bias.in.relative_distance": {
+   "offset": 2606,
+   "len": 36
+  },
+  "rel_bias.in.relative_distance.shape": {
+   "dims": [
+    6,
+    6
+   ]
+  },
+  "rel_bias.in.position_ids": {
+   "offset": 2642,
+   "len": 6
+  },
+  "rel_bias.in.position_ids.shape": {
+   "dims": [
+    1,
+    6
+   ]
+  },
+  "rel_bias.w.linear": {
+   "offset": 2648,
+   "len": 512
+  },
+  "rel_bias.w.linear.shape": {
+   "dims": [
+    16,
+    32
+   ]
+  },
+  "rel_bias.w.scale": {
+   "offset": 3160,
+   "len": 16
+  },
+  "rel_bias.w.scale.shape": {
+   "dims": [
+    4,
+    4
+   ]
+  },
+  "rel_bias.w.proj": {
+   "offset": 3176,
+   "len": 64
+  },
+  "rel_bias.w.proj.shape": {
+   "dims": [
+    4,
+    16
+   ]
+  },
+  "rel_bias.out": {
+   "offset": 3240,
+   "len": 144
+  },
+  "rel_bias.out.shape": {
+   "dims": [
+    1,
+    4,
+    6,
+    6
+   ]
+  },
+  "sconv.in.x": {
+   "offset": 3384,
+   "len": 192
+  },
+  "sconv.in.x.shape": {
+   "dims": [
+    1,
+    6,
+    32
+   ]
+  },
+  "sconv.w.weight": {
+   "offset": 3576,
+   "len": 128
+  },
+  "sconv.w.weight.shape": {
+   "dims": [
+    32,
+    1,
+    4
+   ]
+  },
+  "sconv.out": {
+   "offset": 3704,
+   "len": 192
+  },
+  "sconv.out.shape": {
+   "dims": [
+    1,
+    6,
+    32
+   ]
+  },
+  "dyn_sconv.in.x": {
+   "offset": 3896,
+   "len": 96
+  },
+  "dyn_sconv.in.x.shape": {
+   "dims": [
+    1,
+    6,
+    16
+   ]
+  },
+  "dyn_sconv.in.dynamic_input": {
+   "offset": 3992,
+   "len": 192
+  },
+  "dyn_sconv.in.dynamic_input.shape": {
+   "dims": [
+    1,
+    6,
+    32
+   ]
+  },
+  "dyn_sconv.w.static_weight": {
+   "offset": 4184,
+   "len": 64
+  },
+  "dyn_sconv.w.static_weight.shape": {
+   "dims": [
+    4,
+    16
+   ]
+  },
+  "dyn_sconv.w.weight_proj": {
+   "offset": 4248,
+   "len": 256
+  },
+  "dyn_sconv.w.weight_proj.shape": {
+   "dims": [
+    8,
+    32
+   ]
+  },
+  "dyn_sconv.out": {
+   "offset": 4504,
+   "len": 96
+  },
+  "dyn_sconv.out.shape": {
+   "dims": [
+    1,
+    6,
+    16
+   ]
+  },
+  "router.out.weights": {
+   "offset": 4600,
+   "len": 18
+  },
+  "router.out.weights.shape": {
+   "dims": [
+    6,
+    3
+   ]
+  },
+  "router.out.ids": {
+   "offset": 4618,
+   "len": 18
+  },
+  "router.out.ids.shape": {
+   "dims": [
+    6,
+    3
+   ]
+  },
+  "router.in.x": {
+   "offset": 4636,
+   "len": 192
+  },
+  "router.in.x.shape": {
+   "dims": [
+    6,
+    32
+   ]
+  },
+  "router.w.weight": {
+   "offset": 4828,
+   "len": 256
+  },
+  "router.w.weight.shape": {
+   "dims": [
+    8,
+    32
+   ]
+  },
+  "router.w.bias": {
+   "offset": 5084,
+   "len": 8
+  },
+  "router.w.bias.shape": {
+   "dims": [
+    8
+   ]
+  },
+  "router.out": {
+   "offset": 5092,
+   "len": 18
+  },
+  "router.out.shape": {
+   "dims": [
+    6,
+    3
+   ]
+  },
+  "block_attn.out0": {
+   "offset": 5110,
+   "len": 192
+  },
+  "block_attn.out0.shape": {
+   "dims": [
+    1,
+    6,
+    32
+   ]
+  },
+  "block_attn.out1": {
+   "offset": 5302,
+   "len": 192
+  },
+  "block_attn.out1.shape": {
+   "dims": [
+    1,
+    6,
+    32
+   ]
+  },
+  "block_attn.out2": {
+   "offset": 5494,
+   "len": 192
+  },
+  "block_attn.out2.shape": {
+   "dims": [
+    1,
+    6,
+    32
+   ]
+  },
+  "block_attn.in.states": {
+   "offset": 5686,
+   "len": 384
+  },
+  "block_attn.in.states.shape": {
+   "dims": [
+    1,
+    6,
+    2,
+    32
+   ]
+  },
+  "block_attn.in.partial": {
+   "offset": 6070,
+   "len": 192
+  },
+  "block_attn.in.partial.shape": {
+   "dims": [
+    1,
+    6,
+    32
+   ]
+  },
+  "block_attn.w.query": {
+   "offset": 6262,
+   "len": 96
+  },
+  "block_attn.w.query.shape": {
+   "dims": [
+    3,
+    32
+   ]
+  },
+  "block_attn.out": {
+   "offset": 6358,
+   "len": 192
+  },
+  "block_attn.out.shape": {
+   "dims": [
+    1,
+    6,
+    32
+   ]
+  },
+  "message_gate.in.x": {
+   "offset": 6550,
+   "len": 192
+  },
+  "message_gate.in.x.shape": {
+   "dims": [
+    1,
+    6,
+    32
+   ]
+  },
+  "message_gate.in.message": {
+   "offset": 6742,
+   "len": 192
+  },
+  "message_gate.in.message.shape": {
+   "dims": [
+    1,
+    6,
+    32
+   ]
+  },
+  "message_gate.w.down": {
+   "offset": 6934,
+   "len": 384
+  },
+  "message_gate.w.down.shape": {
+   "dims": [
+    6,
+    64
+   ]
+  },
+  "message_gate.w.forget": {
+   "offset": 7318,
+   "len": 192
+  },
+  "message_gate.w.forget.shape": {
+   "dims": [
+    32,
+    6
+   ]
+  },
+  "message_gate.w.gain": {
+   "offset": 7510,
+   "len": 192
+  },
+  "message_gate.w.gain.shape": {
+   "dims": [
+    32,
+    6
+   ]
+  },
+  "message_gate.out": {
+   "offset": 7702,
+   "len": 192
+  },
+  "message_gate.out.shape": {
+   "dims": [
+    1,
+    6,
+    32
+   ]
+  },
+  "message_residual.in.states": {
+   "offset": 7894,
+   "len": 384
+  },
+  "message_residual.in.states.shape": {
+   "dims": [
+    1,
+    6,
+    2,
+    32
+   ]
+  },
+  "message_residual.in.partial": {
+   "offset": 8278,
+   "len": 192
+  },
+  "message_residual.in.partial.shape": {
+   "dims": [
+    1,
+    6,
+    32
+   ]
+  },
+  "message_residual.w.query": {
+   "offset": 8470,
+   "len": 256
+  },
+  "message_residual.w.query.shape": {
+   "dims": [
+    2,
+    4,
+    32
+   ]
+  },
+  "message_residual.out": {
+   "offset": 8726,
+   "len": 768
+  },
+  "message_residual.out.shape": {
+   "dims": [
+    1,
+    6,
+    4,
+    32
+   ]
+  }
+ },
+ "cases": {
+  "rms_norm": {
+   "scalars": {
+    "eps": 1e-06
+   }
+  },
+  "unweighted_rms_norm": {
+   "scalars": {
+    "eps": 1e-06
+   }
+  },
+  "softcap": {
+   "scalars": {
+    "cap": 7.5
+   }
+  },
+  "swiglu": {
+   "scalars": {
+    "gate_softcap": 4.0,
+    "up_softcap": 25.0,
+    "intermediate": 12
+   }
+  },
+  "l2_clip": {
+   "scalars": {
+    "threshold": 22.627416997969522
+   }
+  },
+  "scaled_l2_clip": {
+   "scalars": {
+    "threshold": 22.627416997969522
+   }
+  },
+  "log_scaled_l2_clip": {
+   "scalars": {
+    "threshold": 8.0,
+    "alpha": 0.1,
+    "n_floor": 8192
+   }
+  },
+  "rel_bias": {
+   "scalars": {
+    "num_heads": 4,
+    "d_rel": 4,
+    "rel_extent": 16,
+    "threshold": 8.0
+   }
+  },
+  "sconv": {
+   "scalars": {
+    "kernel": 4
+   }
+  },
+  "dyn_sconv": {
+   "scalars": {
+    "kernel": 4,
+    "num_heads": 2
+   }
+  },
+  "router": {
+   "scalars": {
+    "n_experts": 8,
+    "top_k": 3,
+    "route_scale": 8.0
+   }
+  },
+  "block_attn": {
+   "scalars": {
+    "states": 2,
+    "hidden": 32,
+    "queries": 3
+   }
+  },
+  "message_gate": {
+   "scalars": {
+    "rank": 6,
+    "eps": 1e-06
+   }
+  },
+  "message_residual": {
+   "scalars": {
+    "states": 2,
+    "hidden": 32,
+    "loop_layer": 1,
+    "n_loop": 2
+   }
+  }
+ }
+}

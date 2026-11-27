@@ -19,8 +19,9 @@ path = "src/main.rs"
 [features]
 default = []
 # A model to benchmark in-process is a cargo feature, with its backend, as for teeny-api:
-# `--features functiongemma3,cuda` (or `riscv`, `qemu`).
+# `--features functiongemma3,cuda` (or `riscv`, `qemu`), or `inkling2,riscv`.
 functiongemma3 = ["teeny-llm/functiongemma3"]
+inkling2 = ["teeny-llm/inkling2"]
 cuda = ["teeny-llm/cuda"]
 riscv = ["teeny-llm/riscv"]
 qemu = ["teeny-llm/qemu"]

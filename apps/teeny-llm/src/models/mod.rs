@@ -25,6 +25,8 @@ use crate::{Error, Result};
 
 #[cfg(feature = "functiongemma3")]
 pub mod functiongemma;
+#[cfg(feature = "inkling2")]
+pub mod inkling2;
 mod load;
 // Only model graph builders use it.
 #[cfg(feature = "functiongemma3")]
@@ -49,6 +51,9 @@ pub enum Model {
     /// FunctionGemma: Gemma 3 270M tuned for function calling (`models::functiongemma`).
     #[cfg(feature = "functiongemma3")]
     FunctionGemma3,
+    /// Inkling-2-Mini: a looped mixture-of-experts model (`models::inkling2`).
+    #[cfg(feature = "inkling2")]
+    Inkling2Mini,
 }
 
 /// What a [`Model`] is, known without loading it. The exact parameter count and the
@@ -81,6 +86,8 @@ impl Model {
     pub const ALL: &'static [Model] = &[
         #[cfg(feature = "functiongemma3")]
         Model::FunctionGemma3,
+        #[cfg(feature = "inkling2")]
+        Model::Inkling2Mini,
     ];
 
     /// What the model is.
@@ -98,6 +105,20 @@ impl Model {
                 hf_repo: "google/functiongemma-270m-it",
                 license: "Gemma",
             },
+            #[cfg(feature = "inkling2")]
+            Model::Inkling2Mini => ModelSpec {
+                tag: "inkling2:mini",
+                family: "inkling2",
+                size: "mini",
+                display_name: "Inkling-2-Mini",
+                architecture: "Inkling-2 (looped MoE)",
+                nominal_parameters: 22_000_000_000,
+                // The engine's attention covers the sliding window, within which every
+                // layer sees the whole conversation; the model itself was trained longer.
+                context_length: 1024,
+                hf_repo: "thinkingmachines/Inkling-2-Mini",
+                license: "see the model card",
+            },
         }
     }
 
@@ -106,6 +127,8 @@ impl Model {
         match self {
             #[cfg(feature = "functiongemma3")]
             Model::FunctionGemma3 => true,
+            #[cfg(feature = "inkling2")]
+            Model::Inkling2Mini => true,
         }
     }
 
@@ -130,6 +153,13 @@ impl Model {
                 "tokenizer.json",
                 "chat_template.jinja",
                 "special_tokens_map.json",
+            ],
+            #[cfg(feature = "inkling2")]
+            Model::Inkling2Mini => &[
+                "config.json",
+                "model.safetensors.index.json",
+                "tokenizer.json",
+                "chat_template.jinja",
             ],
         }
     }
@@ -359,7 +389,10 @@ mod tests {
             assert_eq!(m.tag().parse::<Model>().unwrap(), *m);
             assert_eq!(m.to_string(), m.tag());
         }
-        assert_eq!(Model::tags(), ["functiongemma3", "functiongemma3:270m"]);
+        let tags = Model::tags();
+        assert_eq!(tags[..2], ["functiongemma3", "functiongemma3:270m"]);
+        #[cfg(feature = "inkling2")]
+        assert_eq!(tags[2..], ["inkling2", "inkling2:mini"]);
     }
 
     #[cfg(feature = "functiongemma3")]
