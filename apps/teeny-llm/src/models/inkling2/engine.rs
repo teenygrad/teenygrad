@@ -145,7 +145,6 @@ impl<'d> Pending<'d> {
         index: usize,
     ) -> anyhow::Result<(Self, ReadJob)> {
         let lowering = TritonLowering::new();
-        let (_, graph_to_dag) = lowering.lower_with_mapping(graph, LoweringMode::Inference)?;
         let target = runtime::default_target(device)?;
         let mut model = RuntimeModel::compile(
             device,
@@ -176,6 +175,7 @@ impl<'d> Pending<'d> {
                     .ok_or_else(|| anyhow::anyhow!("{name} has no declared shape"))
             })
             .collect::<anyhow::Result<_>>()?;
+        let graph_to_dag = model.graph_to_dag();
         let outs = outputs.iter().map(|t| graph_to_dag[t.node_id]).collect();
         let dst = slots
             .iter()
