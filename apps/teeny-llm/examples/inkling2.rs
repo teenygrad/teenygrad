@@ -43,11 +43,13 @@ struct Args {
     /// Defaults to $INKLING2_MODEL_DIR.
     #[arg(long)]
     model: Option<PathBuf>,
-    /// Stop after this many generated tokens.
-    #[arg(long, default_value_t = 64)]
-    max_tokens: usize,
-    /// Room for the whole conversation, in tokens.
-    #[arg(long, default_value_t = 512)]
+    /// Stop after this many generated tokens. Without it a reply runs until the
+    /// model ends it, or the context is full.
+    #[arg(long)]
+    max_tokens: Option<usize>,
+    /// Room for the whole conversation, in tokens. The default is the model's
+    /// sliding window, within which every layer sees the whole conversation.
+    #[arg(long, default_value_t = 1024)]
     context: usize,
     /// One prompt, answered and then exit. Without it, the chat is interactive.
     #[arg(long)]
@@ -173,7 +175,7 @@ fn main() -> anyhow::Result<()> {
                 std::io::stdout().flush()?;
                 shown = text.len();
             }
-            if next == chat.eos || out.len() >= args.max_tokens {
+            if next == chat.eos || args.max_tokens.is_some_and(|m| out.len() >= m) {
                 break;
             }
             if engine.len() >= args.context {

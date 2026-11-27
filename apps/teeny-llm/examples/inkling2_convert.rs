@@ -34,7 +34,7 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use safetensors::tensor::{Dtype, TensorView};
-use teeny_llm::kernels::linear::{LANES, pack_bf16_halves, quantize_lanes_i8};
+use teeny_llm::kernels::linear::{I8_LANES, int8_name, pack_bf16_halves, quantize_lanes_i8};
 use teeny_llm::models::inkling2::Inkling2Config;
 use teeny_llm::models::inkling2::kernels::expert_gemv_nvfp4::{QBLOCK, byte_scale_rows};
 use teeny_llm::models::inkling2::kernels::{expert_gemv_mxfp8, expert_gemv_nvfp4};
@@ -143,12 +143,10 @@ fn write_extra_shard(dir: &std::path::Path, shard: &str, owned: &[(String, Vec<u
     Ok(())
 }
 
-/// The name an int8 linear buffer is stored under, beside its weight.
-const INT8_SUFFIX: &str = ".i8";
 
 /// Writes `converted-int8.safetensors` into a converted checkpoint: for every 2-D
 /// linear weight the lanes kernel can take, the buffer [`quantize_lanes_i8`] gives,
-/// named `<weight>.i8`. The existing tensors are untouched, so a build that does
+/// named [`int8_name`]. The existing tensors are untouched, so a build that does
 /// not know these names reads the checkpoint as before.
 fn add_int8(dir: &std::path::Path) -> anyhow::Result<()> {
     let mut ck = Checkpoint::open(dir)?;
@@ -164,13 +162,14 @@ fn add_int8(dir: &std::path::Path) -> anyhow::Result<()> {
     for name in &names {
         let (values, shape, _) = ck.tensor(name)?;
         let [n, k] = shape[..] else { continue };
-        if n % LANES != 0 || k % 4 != 0 {
+        if n % I8_LANES != 0 || k % 4 != 0 {
             continue;
         }
         let buf = quantize_lanes_i8(&values, n, k).map_err(|e| anyhow::anyhow!("{name}: {e}"))?;
-        owned.push((format!("{name}{INT8_SUFFIX}"), vec![buf.len()], bytes_of(&buf)));
+        owned.push((int8_name(name), vec![buf.len()], bytes_of(&buf)));
     }
-    write_extra_shard(dir, "converted-int8.safetensors", &owned)?;
+    // Named by lane width, so a build reading another width keeps its own shard.
+    write_extra_shard(dir, &format!("converted-int8x{I8_LANES}.safetensors"), &owned)?;
     let bytes: usize = owned.iter().map(|(_, _, b)| b.len()).sum();
     println!("added {} int8 linears, {:.2} GB, to {}", owned.len(), bytes as f64 / 1e9, dir.display());
     Ok(())

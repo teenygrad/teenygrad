@@ -35,7 +35,7 @@ use super::kernels::expert_gemv_nvfp4::{
     QBLOCK, ROWS, byte_scale_rows, interleave_row_bytes, interleave_rows,
 };
 use super::weights::{Checkpoint, Encoding, pack_rows};
-use crate::kernels::linear::{interleave_lanes, pack_bf16_halves, quantize_lanes_i8};
+use crate::kernels::linear::{int8_name, interleave_lanes, pack_bf16_halves, quantize_lanes_i8};
 
 /// What a slot needs from the checkpoint.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -237,7 +237,7 @@ fn stored_as_is(ck: &Checkpoint, src: &Source) -> Option<String> {
             _ => return None,
         },
         Source::LanesI8(inner) => match inner.as_ref() {
-            Source::Tensor(name) => format!("{name}.i8"),
+            Source::Tensor(name) => int8_name(name),
             _ => return None,
         },
         _ => return None,
@@ -317,7 +317,7 @@ fn read_source(
             // A converted checkpoint may carry the buffer already (inkling2_convert
             // --add-int8), which turns seconds of quantising into a read.
             if let Source::Tensor(name) = inner.as_ref() {
-                let stored = format!("{name}.i8");
+                let stored = int8_name(name);
                 if ck.has(&stored) {
                     let buf = ck.param(&stored).map_err(|e| anyhow::anyhow!("slot {slot} reads {stored}: {e}"))?;
                     anyhow::ensure!(
