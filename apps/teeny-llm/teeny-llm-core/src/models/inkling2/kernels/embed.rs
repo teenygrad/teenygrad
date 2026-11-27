@@ -29,7 +29,11 @@ use teeny_core::dtype::{AddOffsets, Comparison, Float, Tensor};
 use teeny_macros::kernel;
 use teeny_triton::triton::*;
 
-/// The embedding lookup above.
+/// The embedding lookup above, on bf16 weights two to a word: word `j` of a row
+/// holds column `j` in its low half and column `j + H / 2` in its high half
+/// ([`crate::kernels::linear::pack_bf16_halves`]), and a bf16 is the top half of its
+/// f32, so each half becomes the exact f32 with a shift or a mask. Half the bytes of
+/// an f32 table, which for a 201024-token vocabulary is 0.9 GB less to load.
 #[allow(clippy::multiple_bound_locations)]
 #[kernel]
 pub fn embed_forward<T: Triton, D: Float, const BLOCK: i32>(
@@ -42,17 +46,20 @@ pub fn embed_forward<T: Triton, D: Float, const BLOCK: i32>(
     T::I32Tensor: Tensor<i32, 1>,
     T::I32Tensor: core::ops::Add<i32, Output = T::I32Tensor>,
     T::I32Tensor: core::ops::Mul<i32, Output = T::I32Tensor>,
+    T::I32Tensor: core::ops::BitAnd<i32, Output = T::I32Tensor>,
+    T::I32Tensor: core::ops::Shl<i32, Output = T::I32Tensor>,
     T::I32Tensor: core::ops::Add<T::I32Tensor, Output = T::I32Tensor>,
     T::I32Tensor: Comparison<i32, BoolTensor = T::BoolTensor>,
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
-    let tiles = (H + BLOCK - 1) / BLOCK;
+    let half = H / 2;
+    let tiles = (half + BLOCK - 1) / BLOCK;
     let pid = T::program_id(Axis::X);
     let t = pid / tiles;
     let tile = pid % tiles;
     let izero = T::zeros::<i32>(&[BLOCK]);
-    let h = T::arange(0, BLOCK) + tile * BLOCK;
-    let m = h.lt(H);
+    let j = T::arange(0, BLOCK) + tile * BLOCK;
+    let m = j.lt(half);
     let zeros = T::zeros::<D>(&[BLOCK]);
     let id = T::load(
         ids_ptr.add_offsets(izero + t),
@@ -65,17 +72,15 @@ pub fn embed_forward<T: Triton, D: Float, const BLOCK: i32>(
         false,
     );
     let row = T::cast::<D, i32>(id, None, false);
-    let w = T::load(
-        w_ptr.add_offsets(h + row * H),
-        Some(m),
-        Some(zeros),
-        &[],
+    let word = T::cast::<D, i32>(
+        T::load(w_ptr.add_offsets(j + row * half), Some(m), Some(zeros), &[], None, None, None, false),
         None,
-        None,
-        None,
-        false,
+        true,
     );
-    T::store(y_ptr.add_offsets(h + t * H), w, Some(m), &[], None, None);
+    let lo = T::cast::<i32, D>(word << 16, None, true);
+    let hi = T::cast::<i32, D>(word & -65536, None, true);
+    T::store(y_ptr.add_offsets(j + t * H), lo, Some(m), &[], None, None);
+    T::store(y_ptr.add_offsets(j + (t * H + half)), hi, Some(m), &[], None, None);
 }
 
 // ---------------------------------------------------------------------------
@@ -90,8 +95,8 @@ use teeny_core::dtype::FloatBytes;
 use teeny_core::graph::{CustomOp, Shape};
 use teeny_core::model::{RawPtr, RuntimeOp};
 
-/// Graph-level embedding: ids `[T]` to `[T, hidden]`. Weight slot `weight`
-/// `[vocab, hidden]`.
+/// Graph-level embedding: ids `[T]` to `[T, hidden]`. Weight slot `weight_bf16`,
+/// `[vocab, hidden / 2]` words of bf16 pairs.
 pub struct EmbedOp<D: FloatBytes + Send + Sync + 'static> {
     /// Vocabulary size.
     pub vocab: usize,
@@ -103,6 +108,7 @@ pub struct EmbedOp<D: FloatBytes + Send + Sync + 'static> {
 impl<D: FloatBytes + Send + Sync + 'static> EmbedOp<D> {
     /// Creates the op.
     pub fn new(vocab: usize, hidden: usize) -> Self {
+        assert!(hidden.is_multiple_of(2), "embed: hidden size must be even for bf16 pairs");
         Self {
             vocab,
             hidden,
@@ -154,11 +160,11 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for EmbedRuntimeOp<D> {
     }
 
     fn param_shapes(&self, _input_shapes: &[&[usize]], _output_shape: &[usize]) -> Vec<Vec<usize>> {
-        vec![vec![self.vocab, self.hidden]]
+        vec![vec![self.vocab, self.hidden / 2]]
     }
 
     fn param_names(&self) -> &'static [&'static str] {
-        &["weight"]
+        &["weight_bf16"]
     }
 
     fn pack_args(
@@ -177,7 +183,7 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for EmbedRuntimeOp<D> {
     }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
-        let tiles = self.hidden.div_ceil(EMBED_BLOCK as usize);
+        let tiles = (self.hidden / 2).div_ceil(EMBED_BLOCK as usize);
         [(output_shape[0] * tiles) as u32, 1, 1]
     }
 }

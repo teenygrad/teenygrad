@@ -35,11 +35,14 @@ use teeny_llm_core::models::inkling2::kernels::{
     cat2::Cat2Op,
     controller::{ControllerApplyOp, ControllerDownOp},
     dyn_sconv::DynSconvOp,
+    embed::EmbedOp,
     expert_gather::ExpertGatherOp,
     expert_gather_mxfp8::ExpertGatherMxfp8Op,
     expert_gather_nvfp4::ExpertGatherNvfp4Op,
     expert_gemv_mxfp8::ExpertGemvMxfp8Op,
-    expert_gemv_nvfp4::{ExpertGemvNvfp4Op, QuantRowsQ8Op, ROWS, interleave_row_bytes, interleave_rows},
+    expert_gemv_nvfp4::{
+        ExpertGemvNvfp4Op, QuantRowsQ8Op, ROWS, byte_scale_rows, interleave_row_bytes, interleave_rows,
+    },
     gated_mul::GatedMulOp,
     l2_clip::{L2ClipOp, ScaledL2ClipOp},
     mix::MessageMixOp,
@@ -2127,25 +2130,40 @@ fn test_quant_rows_q8_matches_the_host() {
 /// Random packed NVFP4 weights and folded scales for `rows` rows of `k`: the
 /// row-major words the f32-weight gather and the loader start from, the matching
 /// f32 weights, and the folded scales.
-fn nvfp4_case(rows: usize, k: usize, seed: u64) -> (Vec<f32>, Vec<f32>, Vec<f32>) {
+/// Packed weight words, the dequantised weights, the kernel's scale buffer, and each
+/// block's true scale row-major (`e4m3(byte) * scale2[expert]`).
+fn nvfp4_case(e: usize, n: usize, k: usize, seed: u64) -> (Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>) {
+    let rows = e * n;
     let bytes: Vec<u8> = values(rows * k / 2, seed)
         .iter()
         .map(|v| ((v + 1.0) * 127.9) as u8)
         .collect();
-    let scales: Vec<f32> = values(rows * k / 16, seed + 1)
+    // E4M3 block scale bytes from 0 to 69: subnormals (below 8) and normals.
+    let sbytes: Vec<u8> = values(rows * k / 16, seed + 1)
         .iter()
-        .map(|v| 0.01 + 0.2 * v.abs())
+        .map(|v| (v.abs() * 69.9) as u8)
         .collect();
+    let scale2: Vec<f32> = (0..e).map(|x| 0.03 * (x + 1) as f32).collect();
     let words = pack_rows(&bytes.iter().map(|b| *b as f32).collect::<Vec<_>>(), k / 2);
     let w: Vec<f32> = (0..rows * k)
         .map(|i| {
             let (row, col) = (i / k, i % k);
             let byte = bytes[row * k / 2 + col / 2];
             let nib = if col % 2 == 1 { byte >> 4 } else { byte & 0x0F };
-            E2M1[nib as usize] * scales[row * k / 16 + col / 16]
+            E2M1[nib as usize] * e4m3(sbytes[row * k / 16 + col / 16]) * scale2[row / n]
         })
         .collect();
-    (words, w, scales)
+    let sbuf = byte_scale_rows(
+        &sbytes.iter().map(|b| *b as f32).collect::<Vec<_>>(),
+        &scale2,
+        e,
+        n,
+        k,
+    );
+    let flat: Vec<f32> = (0..rows * k / 16)
+        .map(|i| e4m3(sbytes[i]) * scale2[i / (k / 16) / n])
+        .collect();
+    (words, w, sbuf, flat)
 }
 
 /// The integer projection, on the device, from `x` and row-major weights.
@@ -2158,15 +2176,14 @@ fn run_gemv_nvfp4(
 ) -> Vec<f32> {
     let xq = OneOp::new(&[t, k]).run(QuantRowsQ8Op::<f32>::new(k), &[], &[x], &[]);
     let w_r = interleave_row_bytes(words, e, n, k / 2, ROWS);
-    let half: Vec<f32> = scales.iter().map(|s| s * 0.5).collect();
-    let s_r = interleave_rows(&half, e, n, k / 16, ROWS);
+    let s_r = scales;
     let g = OneOp::new(&[t, k + k / 16]);
     let ids = g.input(&[t, 2 * top_k]);
     g.run(
         ExpertGemvNvfp4Op::<f32>::new(e, n, k, top_k),
         &[&ids],
         &[&xq, packed_ids],
-        &[&w_r, &s_r],
+        &[&w_r, s_r],
     )
 }
 
@@ -2186,7 +2203,7 @@ fn packed_router_ids(ids: &[usize], t: usize, top_k: usize) -> Vec<f32> {
 #[test]
 fn test_nvfp4_gemv_matches_the_integer_host_reference() {
     let (t, e, n, k, top_k) = (2usize, 3usize, 64usize, 64usize, 2usize);
-    let (words, w, scales) = nvfp4_case(e * n, k, 401);
+    let (words, w, scales, flat) = nvfp4_case(e, n, k, 401);
     let x = values(t * k, 402);
     let ids = [2usize, 0, 1, 2];
     let got = run_gemv_nvfp4(
@@ -2211,12 +2228,13 @@ fn test_nvfp4_gemv_matches_the_integer_host_reference() {
                     let isum: i64 = (0..16)
                         .map(|i| {
                             let col = b * 16 + i;
-                            let w2 = (w[r * k + col] / scales[r * k / 16 + b] * 2.0).round() as i64;
+                            let sc = flat[r * k / 16 + b];
+                            let w2 = if sc == 0.0 { 0 } else { (w[r * k + col] / sc * 2.0).round() as i64 };
                             w2 * xq[tok * stride + col] as i64
                         })
                         .sum();
                     acc += isum as f64
-                        * (scales[r * k / 16 + b] * 0.5) as f64
+                        * (flat[r * k / 16 + b] * 0.5) as f64
                         * xq[tok * stride + k + b] as f64;
                 }
                 want[(tok * top_k + slot) * n + row] = acc as f32;
@@ -2233,7 +2251,7 @@ fn test_nvfp4_gemv_matches_the_integer_host_reference() {
 #[test]
 fn test_nvfp4_gemv_tracks_the_f32_gather() {
     let (t, e, n, k, top_k) = (2usize, 3usize, 32usize, 128usize, 2usize);
-    let (words, w, scales) = nvfp4_case(e * n, k, 501);
+    let (words, w, scales, _) = nvfp4_case(e, n, k, 501);
     let x = values(t * k, 502);
     let ids = [1usize, 2, 0, 1];
     let packed = packed_router_ids(&ids, t, top_k);
@@ -2288,6 +2306,25 @@ fn test_bf16_linear_matches_the_f32_linear() {
     let got = OneOp::new(&[m, k]).run(Linear4Bf16Op::<f32>::new(k, n, 16), &[], &[&x], &[&packed]);
     assert_close("bf16 linear vs f32 linear", &got, &want, 1e-5);
     assert!(want.iter().any(|v| v.abs() > 1e-3), "non-trivial output");
+}
+
+/// The bf16 embedding returns each id's row exactly, both halves of every pair in
+/// their columns.
+#[test]
+fn test_bf16_embedding_returns_the_rows_exactly() {
+    let (vocab, hidden) = (7usize, 300usize);
+    let w: Vec<f32> = values(vocab * hidden, 631)
+        .iter()
+        .map(|v| f32::from_bits(v.to_bits() & 0xFFFF_0000))
+        .collect();
+    let packed = pack_bf16_halves(&w, vocab, hidden).expect("bf16 weights pack");
+    let ids = [3.0f32, 0.0, 6.0, 3.0];
+    let got = OneOp::new(&[ids.len()]).run(EmbedOp::<f32>::new(vocab, hidden), &[], &[&ids], &[&packed]);
+    let want: Vec<f32> = ids
+        .iter()
+        .flat_map(|&id| w[id as usize * hidden..(id as usize + 1) * hidden].to_vec())
+        .collect();
+    assert_eq!(got, want, "bf16 embedding rows");
 }
 
 /// The lanes linear computes what the f32 linear does at every row count a tile can
@@ -2389,10 +2426,9 @@ fn test_mxfp8_gemv_matches_the_f32_gather() {
 #[test]
 fn test_one_model_runs_at_any_row_count_up_to_its_own() {
     let (max_t, e, n, k, top_k) = (4usize, 3usize, 32usize, 64usize, 2usize);
-    let (words, _, scales) = nvfp4_case(e * n, k, 701);
+    let (words, _, scales, _) = nvfp4_case(e, n, k, 701);
     let w_r = interleave_row_bytes(&words, e, n, k / 2, ROWS);
-    let half: Vec<f32> = scales.iter().map(|s| s * 0.5).collect();
-    let s_r = interleave_rows(&half, e, n, k / 16, ROWS);
+    let s_r = scales;
     let lin: Vec<f32> = values(8 * k, 702)
         .iter()
         .map(|v| f32::from_bits(v.to_bits() & 0xFFFF_0000))
@@ -2435,7 +2471,7 @@ fn test_one_model_runs_at_any_row_count_up_to_its_own() {
     for (name, node, idx) in model.param_info_named().collect::<Vec<_>>() {
         let data: &[f32] = match name.as_str() {
             "op.weight_rows" => &w_r,
-            "op.folded_scale_rows" => &s_r,
+            "op.byte_scale_rows" => &s_r,
             "lin.weight_bf16" => &lin_packed,
             other => panic!("unexpected parameter {other}"),
         };

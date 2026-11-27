@@ -198,6 +198,7 @@ pub fn checkpoint_name(slot: &str, layer: usize) -> String {
         "mlp.experts.scale"
         | "mlp.experts.folded_scale"
         | "mlp.experts.folded_scale_rows"
+        | "mlp.experts.byte_scale_rows"
         | "mlp.experts.scale_rows" => {
             format!("{prefix}mlp.experts.w13_weight_scale")
         }
@@ -207,6 +208,7 @@ pub fn checkpoint_name(slot: &str, layer: usize) -> String {
         "mlp.experts_down.scale"
         | "mlp.experts_down.folded_scale"
         | "mlp.experts_down.folded_scale_rows"
+        | "mlp.experts_down.byte_scale_rows"
         | "mlp.experts_down.scale_rows" => {
             format!("{prefix}mlp.experts.w2_weight_scale")
         }
