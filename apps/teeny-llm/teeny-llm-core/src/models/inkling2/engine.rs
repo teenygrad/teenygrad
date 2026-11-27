@@ -39,7 +39,7 @@ use anyhow::Context;
 use teeny_core::graph::{DtypeRepr, Graph, Op, SymTensor};
 use teeny_core::model::LoweringMode;
 use teeny_kernels::graph::TritonLowering;
-use teeny_test::model::{RuntimeModel, runtime};
+use teeny_test::model::{Feed, RuntimeModel, runtime};
 
 use super::config::Inkling2TextConfig;
 use super::kernels::attention::PastLen;
@@ -122,6 +122,15 @@ impl<'d> Compiled<'d> {
         feeds: &[&[f32]],
     ) -> anyhow::Result<Vec<Vec<f32>>> {
         self.model.run(device, feeds, &self.outs)
+    }
+
+    /// [`Self::run`] with each input either copied or read in place.
+    fn run_feeds(
+        &mut self,
+        device: &runtime::Device<'d>,
+        feeds: &[Feed<'_>],
+    ) -> anyhow::Result<Vec<Vec<f32>>> {
+        self.model.run_feeds(device, feeds, &self.outs)
     }
 }
 
@@ -435,7 +444,15 @@ impl<'d> Engine<'d> {
                         step.layer,
                         block_in.len()
                     );
-                    let mut out = self.layers[step.layer].run(device, &feeds)?;
+                    // The KV caches are the large inputs, 2 MB each at 512 tokens, and
+                    // the layer only reads them: passed in place they cost nothing,
+                    // where copying them was 200 MB a token.
+                    let feeds: Vec<Feed<'_>> = feeds
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, f)| if i == 7 || i == 8 { Feed::Borrow(f) } else { Feed::Copy(f) })
+                        .collect();
+                    let mut out = self.layers[step.layer].run_feeds(device, &feeds)?;
                     let (conv3, conv2) = (out.remove(6), out.remove(5));
                     let (conv1, conv0) = (out.remove(4), out.remove(3));
                     let (v_new, k_new) = (out.remove(2), out.remove(1));
