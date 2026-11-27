@@ -328,6 +328,19 @@ target features with a low-rank Markov head.
   well under a third of a plain step, which needs experts that are shared across
   tokens or cheaper to read.
 
+### 13. Tried and dropped: int4 linears, two row blocks per expert program
+
+- **int4 linears** (a scale per output row and 64 inputs, 0.56 bytes a weight) cut the
+  linears' stored bytes from 1.12 GB to 0.63 GB, but decode only went from 3.20 to
+  3.33 tokens/s. With half the bytes, unpacking the nibbles (mask, shift, subtract,
+  widen to f32) bounds the kernel instead of memory: the attention linears got only
+  about 5% faster. Not worth the accuracy risk, so int8 stays. The kernel, a qemu test,
+  the loader and `inkling2_convert --add-int4` are on the
+  `experiment/inkling2-int4-linears` branch.
+- **Two blocks of 32 rows per NVFP4 expert program**, to share each activation's scalar
+  load between them, made decode 2-3% slower (3.14 against 3.20 tokens/s): half as many
+  programs cost more than the shared loads saved.
+
 ## Where the time goes now
 
 A generated token is about 310 ms of kernel time, about 2,900 launches:
@@ -414,8 +427,20 @@ Plus host unit tests for the spin pool, bf16 packing and both interleaves, and t
 teeny-rustc tests that `tt.gather` becomes `vrgather.vv` with RVV and still compiles
 without it.
 
+## Rebased onto the model-loader refactor
+
+The branch is rebased onto `feature/llm-functiongemma`, which flattened
+`teeny-llm-core` into `apps/teeny-llm` and moved node naming out of `teeny-core`.
+Inkling-2's graph builders keep their dotted names with a small scope stack of their
+own (`models::inkling2::naming`), so every checkpoint tensor binds by the same name.
+The rebased build answers token for token as before, at the same speed. teeny-llm now
+enables `functiongemma3` and `cuda` by default, so Inkling-2 builds and tests take
+`--no-default-features --features inkling2,riscv` (or `qemu`).
+
 ## Not done
 
+- **Inkling-2 in `teeny-bench`** needs a `Model::Inkling2` variant and a `ChatModel`
+  worker like FunctionGemma's `serve.rs`.
 - **A logit-level check** of the int8 activations and int8 linears against the f32
   build, beyond greedy text.
 - **Why the attention fusion did not speed decode up.** Its per-op profile did not
