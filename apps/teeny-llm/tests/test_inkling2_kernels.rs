@@ -52,7 +52,9 @@ use teeny_llm::models::inkling2::kernels::{
     softcap::SoftcapOp,
     swiglu::SwigluOp,
 };
-use teeny_llm::kernels::linear::{Linear4Bf16Op, Linear4Op, pack_bf16_halves};
+use teeny_llm::kernels::linear::{
+    Linear4Bf16Op, Linear4Op, LinearLanesBf16Op, interleave_lanes, pack_bf16_halves,
+};
 use teeny_llm::models::inkling2::weights::{Checkpoint, pack_rows};
 use teeny_test::model::{RuntimeModel, runtime};
 
@@ -2285,6 +2287,25 @@ fn test_bf16_linear_matches_the_f32_linear() {
     let got = OneOp::new(&[m, k]).run(Linear4Bf16Op::<f32>::new(k, n, 16), &[], &[&x], &[&packed]);
     assert_close("bf16 linear vs f32 linear", &got, &want, 1e-5);
     assert!(want.iter().any(|v| v.abs() > 1e-3), "non-trivial output");
+}
+
+/// The lanes linear computes what the f32 linear does at every row count a tile can
+/// leave: one row (its own loop), a full tile, and partial tiles that repeat a row.
+#[test]
+fn test_lanes_linear_matches_the_f32_linear_at_any_row_count() {
+    let (k, n) = (96usize, 48usize);
+    let w: Vec<f32> = values(n * k, 611)
+        .iter()
+        .map(|v| f32::from_bits(v.to_bits() & 0xFFFF_0000))
+        .collect();
+    let packed = pack_bf16_halves(&w, n, k).expect("bf16 weights pack");
+    let lanes = interleave_lanes(&packed, n, k / 2).expect("lanes interleave");
+    for m in [1usize, 2, 3, 4, 5, 7] {
+        let x = values(m * k, 612 + m as u64);
+        let want = OneOp::new(&[m, k]).run(Linear4Op::<f32>::new(k, n, 16), &[], &[&x], &[&w]);
+        let got = OneOp::new(&[m, k]).run(LinearLanesBf16Op::<f32>::new(k, n), &[], &[&x], &[&lanes]);
+        assert_close(&format!("lanes linear, {m} rows"), &got, &want, 1e-5);
+    }
 }
 
 /// The rows-as-lanes MXFP8 projection computes what the f32 gather does on the same
