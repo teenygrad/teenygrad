@@ -48,7 +48,7 @@ use teeny_triton::triton::*;
 #[allow(clippy::multiple_bound_locations)]
 #[allow(clippy::too_many_arguments)]
 #[kernel]
-pub fn dyn_sconv_forward<T: Triton, D: Float, const BLOCK: i32, const K: i32>(
+pub fn dyn_sconv_forward<T: Triton, D: Float, const BLOCK: i32, const K: i32, const POST: i32>(
     h_ptr: InPtr<T::Pointer<D>>,
     x_ptr: InPtr<T::Pointer<D>>,
     d_ptr: InPtr<T::Pointer<D>>,
@@ -58,6 +58,7 @@ pub fn dyn_sconv_forward<T: Triton, D: Float, const BLOCK: i32, const K: i32>(
     HEAD_DIM: i32,
     DYN_STRIDE: i32,
     NORM: f32,
+    THRESHOLD: f32,
 ) where
     T: Triton<I32Tensor = <T as Triton>::Tensor<i32>>,
     T::I32Tensor: Tensor<i32, 1>,
@@ -142,14 +143,27 @@ pub fn dyn_sconv_forward<T: Triton, D: Float, const BLOCK: i32, const K: i32>(
     );
     // 1 / sqrt(2K + 1), computed by the host: the kernel environment has no sqrt.
     let norm = T::full(&[BLOCK], D::from_f64(NORM as f64));
-    T::store(
-        y_ptr.add_offsets(offs + t * C),
-        (acc + cur) * norm,
-        Some(m),
-        &[],
-        None,
-        None,
-    );
+    // POST 1 and 2 finish a key or value: an L2 clip or an unweighted RMS norm over
+    // the head this program covers (BLOCK is then the head size), so the projection's
+    // normalisation does not take a launch of its own.
+    let y = (acc + cur) * norm;
+    if POST == 0 {
+        T::store(y_ptr.add_offsets(offs + t * C), y, Some(m), &[], None, None);
+    }
+    if POST == 1 {
+        let ss = T::sum(y * y, Some(0), true);
+        let ratio = T::minimum(
+            T::full(&[BLOCK], D::from_f64(THRESHOLD as f64))
+                / (T::sqrt(ss) + T::full(&[BLOCK], D::from_f64(1e-6))),
+            T::full(&[BLOCK], D::from_f64(1.0)),
+        );
+        T::store(y_ptr.add_offsets(offs + t * C), y * ratio, Some(m), &[], None, None);
+    }
+    if POST == 2 {
+        let ss = T::sum(y * y, Some(0), true);
+        let inv = T::rsqrt(ss / T::full(&[BLOCK], D::from_f64(BLOCK as f64)) + T::full(&[BLOCK], D::from_f64(1e-6)));
+        T::store(y_ptr.add_offsets(offs + t * C), y * inv, Some(m), &[], None, None);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -164,7 +178,7 @@ use teeny_core::dtype::FloatBytes;
 use teeny_core::graph::{CustomOp, Shape};
 use teeny_core::model::{RawPtr, RuntimeOp};
 
-const BLOCK: i32 = 256;
+pub use super::sconv::Post;
 
 /// Graph-level dynamic short convolution: inputs `hist` `[K - 1, C]`, `x` `[T, C]`
 /// and `dyn` `[T, heads * K]`, parameter `static_w` `[K, C]`, output `[T, C]`.
@@ -175,12 +189,20 @@ pub struct DynSconvOp<D: FloatBytes + Send + Sync + 'static> {
     pub heads: usize,
     /// Filter width. The shipped checkpoints use 4.
     pub width: usize,
+    /// What happens to each head before it is stored.
+    pub post: Post,
     _phantom: PhantomData<D>,
 }
 
 impl<D: FloatBytes + Send + Sync + 'static> DynSconvOp<D> {
     /// A convolution of `width` taps over `channels` channels in `heads` groups.
     pub fn new(channels: usize, heads: usize, width: usize) -> Self {
+        Self::with_post(channels, heads, width, Post::None)
+    }
+
+    /// [`Self::new`], finishing each head with `post` (see [`Post`]).
+    pub fn with_post(channels: usize, heads: usize, width: usize, post: Post) -> Self {
+        post.check(channels);
         assert_eq!(width, 4, "dyn sconv: only the shipped width 4 is compiled");
         assert!(
             heads > 0 && channels.is_multiple_of(heads),
@@ -190,6 +212,7 @@ impl<D: FloatBytes + Send + Sync + 'static> DynSconvOp<D> {
             channels,
             heads,
             width,
+            post,
             _phantom: PhantomData,
         }
     }
@@ -209,7 +232,7 @@ impl<D: FloatBytes + Send + Sync + 'static> CustomOp for DynSconvOp<D> {
     }
 
     fn lower(&self) -> Option<(String, String, String, Arc<dyn RuntimeOp>)> {
-        let kernel = DynSconvForward::<D>::new(BLOCK, 4);
+        let kernel = DynSconvForward::<D>::new(self.post.block(), 4, self.post.code());
         Some((
             "dyn_sconv_forward".to_string(),
             kernel.source,
@@ -218,6 +241,7 @@ impl<D: FloatBytes + Send + Sync + 'static> CustomOp for DynSconvOp<D> {
                 channels: self.channels,
                 heads: self.heads,
                 width: self.width,
+                post: self.post,
                 _phantom: PhantomData,
             }),
         ))
@@ -229,6 +253,7 @@ pub struct DynSconvRuntimeOp<D: FloatBytes + Send + Sync + 'static> {
     channels: usize,
     heads: usize,
     width: usize,
+    post: Post,
     _phantom: PhantomData<D>,
 }
 
@@ -276,11 +301,12 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for DynSconvRuntimeOp<D> {
         visitor.visit_i32((self.channels / self.heads) as i32);
         visitor.visit_i32((self.heads * self.width) as i32);
         visitor.visit_f32(1.0 / ((2 * self.width + 1) as f32).sqrt());
+        visitor.visit_f32(self.post.threshold());
     }
 
     fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
         [
-            self.channels.div_ceil(BLOCK as usize) as u32,
+            self.channels.div_ceil(self.post.block() as usize) as u32,
             output_shape[0] as u32,
             1,
         ]
