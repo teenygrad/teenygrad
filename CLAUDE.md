@@ -96,7 +96,7 @@ FXGraph (traced computation) → Compiler → Backends (LLVM/ndarray/Triton)
 
 ### Dependencies
 
-- **Async**: tokio (full features), smol
+- **Async**: tokio (full features)
 - **Compiler**: egg (e-graph optimization, in teeny-compiler, teeny-fxgraph and teeny-torch)
 - **Python**: pyo3 with extension-module
 - **Serialization**: safetensors, flatbuffers, protobuf
