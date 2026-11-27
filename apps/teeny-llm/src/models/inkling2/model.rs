@@ -52,7 +52,7 @@ use super::config::Inkling2TextConfig;
 use super::kernels::{
     attention::{AttentionSpec, PastLen, SinkAttentionOp},
     block_attn::BlockAttnOp,
-    cat2::Cat2Op,
+    controller::{ControllerApplyOp, ControllerDownOp},
     dyn_sconv::DynSconvOp,
     embed::EmbedOp,
     expert_gather::ExpertGatherOp,
@@ -638,8 +638,7 @@ pub fn build_message_block<D: FloatBytes + Send + Sync + 'static>(
 /// `which` is `attn`, `k`, `v` or `mlp`, matching the checkpoint's four controllers.
 /// The gates are computed from the normalised inputs but applied to the raw ones.
 ///
-/// `tanh` is [`super::kernels::softcap::SoftcapOp`] with a cap of 1, since
-/// `tanh(x / 1) * 1` is `tanh(x)`; no separate kernel is needed for it.
+/// Computed by [`super::kernels::controller`] in two launches.
 pub fn build_controller<D: FloatBytes + Send + Sync + 'static>(
     cfg: &Inkling2TextConfig,
     which: &str,
@@ -651,35 +650,17 @@ pub fn build_controller<D: FloatBytes + Send + Sync + 'static>(
     let hid = cfg.hidden_size;
     let rank = cfg.loop_config.gate_rank;
 
-    let norm = |x: &SymTensor| {
-        x.record_custom(
-            CustomData::new(UnweightedRmsNormOp::<D>::new(hid)),
-            &[],
-            None,
-        )
-    };
-    let joined = norm(hidden).record_custom(
-        CustomData::new(Cat2Op::<D>::new(hid, hid)),
-        &[&norm(message)],
+    // Two fused kernels rather than nine: see `kernels::controller`. Their weight
+    // slots are `down.weight_bf16`, `forget.weight_bf16` and `gain.weight_bf16` under
+    // this scope, the same checkpoint tensors the separate linears read.
+    let g = hidden.record_custom(
+        CustomData::new(ControllerDownOp::<D>::new(hid, rank)),
+        &[message],
         None,
     );
-    let g = {
-        let _d = name_scope("down");
-        linear::<D>(&joined, 2 * hid, rank)
-    };
-    let tanh =
-        |x: &SymTensor| x.record_custom(CustomData::new(SoftcapOp::<D>::new(1.0)), &[], None);
-    let forget = {
-        let _f = name_scope("forget");
-        tanh(&linear::<D>(&g, rank, hid))
-    };
-    let gain = {
-        let _g2 = name_scope("gain");
-        tanh(&linear::<D>(&g, rank, hid))
-    };
     hidden.record_custom(
-        CustomData::new(MessageMixOp::<D>::default()),
-        &[message, &forget, &gain],
+        CustomData::new(ControllerApplyOp::<D>::new(hid, rank)),
+        &[message, &g],
         None,
     )
 }

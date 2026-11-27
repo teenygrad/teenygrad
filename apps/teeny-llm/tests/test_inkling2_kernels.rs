@@ -33,6 +33,7 @@ use teeny_llm::models::inkling2::kernels::{
     attention::{AttentionSpec, PastLen, SinkAttentionOp},
     block_attn::BlockAttnOp,
     cat2::Cat2Op,
+    controller::{ControllerApplyOp, ControllerDownOp},
     dyn_sconv::DynSconvOp,
     expert_gather::ExpertGatherOp,
     expert_gather_mxfp8::ExpertGatherMxfp8Op,
@@ -2419,4 +2420,61 @@ fn test_one_model_runs_at_any_row_count_up_to_its_own() {
     }
     assert!(model.set_rows(max_t + 1).is_err(), "more rows than compiled");
     assert_eq!(model.rows(), 1, "a refused row count leaves the old one");
+}
+
+/// The fused controller computes what the nine-op graph does:
+/// `g = down(cat(norm(h), norm(m)))`, then
+/// `(1 - tanh(forget(g))) * h + tanh(gain(g)) * m`, against an f64 host reference.
+#[test]
+fn test_fused_controller_matches_the_reference() {
+    let (t, hid, rank) = (3usize, 200usize, 64usize);
+    let bf16 = |v: &[f32]| -> Vec<f32> { v.iter().map(|x| f32::from_bits(x.to_bits() & 0xFFFF_0000)).collect() };
+    // Large enough gates that tanh leaves its linear range on both sides.
+    let h: Vec<f32> = values(t * hid, 801).iter().map(|v| v * 3.0).collect();
+    let m: Vec<f32> = values(t * hid, 802).iter().map(|v| v * 2.0).collect();
+    let wd = bf16(&values(rank * 2 * hid, 803));
+    let wf: Vec<f32> = bf16(&values(hid * rank, 804).iter().map(|v| v * 4.0).collect::<Vec<_>>());
+    let wg: Vec<f32> = bf16(&values(hid * rank, 805).iter().map(|v| v * 4.0).collect::<Vec<_>>());
+
+    // Host reference, in f64.
+    let mut want = vec![0.0f32; t * hid];
+    for tok in 0..t {
+        let row = |v: &[f32]| v[tok * hid..(tok + 1) * hid].iter().map(|&x| x as f64).collect::<Vec<f64>>();
+        let (hr, mr) = (row(&h), row(&m));
+        let norm = |x: &[f64]| {
+            let inv = 1.0 / (x.iter().map(|v| v * v).sum::<f64>() / hid as f64 + 1e-6).sqrt();
+            x.iter().map(|v| v * inv).collect::<Vec<f64>>()
+        };
+        let joined: Vec<f64> = norm(&hr).into_iter().chain(norm(&mr)).collect();
+        let g: Vec<f64> = (0..rank)
+            .map(|r| (0..2 * hid).map(|k| wd[r * 2 * hid + k] as f64 * joined[k]).sum())
+            .collect();
+        for c in 0..hid {
+            let f: f64 = (0..rank).map(|r| wf[c * rank + r] as f64 * g[r]).sum();
+            let a: f64 = (0..rank).map(|r| wg[c * rank + r] as f64 * g[r]).sum();
+            want[tok * hid + c] = ((1.0 - f.tanh()) * hr[c] + a.tanh() * mr[c]) as f32;
+        }
+    }
+
+    let gd = OneOp::new(&[t, hid]);
+    let m_in = gd.input(&[t, hid]);
+    let g_out = gd.run(
+        ControllerDownOp::<f32>::new(hid, rank),
+        &[&m_in],
+        &[&h, &m],
+        &[&pack_bf16_halves(&wd, rank, 2 * hid).expect("pack down")],
+    );
+    let ga = OneOp::new(&[t, hid]);
+    let m_in2 = ga.input(&[t, hid]);
+    let g_in = ga.input(&[t, rank]);
+    let got = ga.run(
+        ControllerApplyOp::<f32>::new(hid, rank),
+        &[&m_in2, &g_in],
+        &[&h, &m, &g_out],
+        &[
+            &pack_bf16_halves(&wf, hid, rank).expect("pack forget"),
+            &pack_bf16_halves(&wg, hid, rank).expect("pack gain"),
+        ],
+    );
+    assert_close("fused controller", &got, &want, 2e-4);
 }
