@@ -18,9 +18,11 @@ x86-64 Linux host, including every kernel, and copied over. To check the measure
 
 ### 1. Host prerequisites (once)
 
+Packaging and deploying go through [cargo-teeny](https://github.com/teenygrad/cargo-teeny); see
+its README for the cross-compilation prerequisites.
+
 ```bash
-rustup target add riscv64gc-unknown-linux-gnu
-sudo apt install gcc-riscv64-linux-gnu qemu-user-static rsync
+cargo install cargo-teeny
 cargo teeny install-toolchain      # teenyc, the kernel compiler
 ```
 
@@ -32,40 +34,46 @@ huggingface-cli login
 huggingface-cli download google/functiongemma-270m-it
 ```
 
-The script finds it in `~/.cache/huggingface/hub`; set `GEMMA_MODEL_DIR` to use another folder.
+It lands in `~/.cache/huggingface/hub`; the commands below take it from `GEMMA_MODEL_DIR`:
+
+```bash
+GEMMA_MODEL_DIR=$(ls -d ~/.cache/huggingface/hub/models--google--functiongemma-270m-it/snapshots/* | head -1)
+```
 
 ### 2. SSH access to the board
 
-The script logs in over ssh several times, so `ssh <board> true` should work without a password
-prompt (a key without a passphrase, or one loaded with `ssh-add`).
+`cargo teeny deploy` copies over rsync and ssh, so `ssh <board> true` should work without a
+password prompt (a key without a passphrase, or one loaded with `ssh-add`).
 
-### 3. Build, copy and start the chat
+### 3. Package, deploy and start the chat
 
-From the workspace root:
-
-```bash
-apps/teeny-llm/scripts/functiongemma-board-chat.sh -H board
-```
-
-This:
-
-1. cross-compiles the `chat` example for `riscv64gc-unknown-linux-gnu`;
-2. compiles every kernel for the K3 by starting that binary under qemu-user (a few minutes the
-   first time; later runs reuse `target/riscv64-native/gemma-kernel-cache`);
-3. stages the binary, kernel cache and model (about 560 MB) and rsyncs them to
-   `~/functiongemma-chat` on the board;
-4. starts the chat there with `teenyc` disabled, so a missing kernel fails loudly.
-
-Without `-H` it only builds and stages, in `target/riscv64-native/gemma-stage`. Other options:
-`--skip-build`, and chat flags after `--` (for example `-- --context 2048 --max-tokens 256`).
-`TEENYC_CAPABILITY` picks the kernel target (default `spacemit-k3`; `generic-rvv1.0` for other
-RVV 1.0 boards).
-
-Once it's on the board, start the chat again without rebuilding:
+From the workspace root, package the `chat` example for the K3. This cross-compiles it for
+`riscv64gc-unknown-linux-gnu` and compiles every kernel for the board's capability on the host,
+into `dist/functiongemma-k3` (`bin/`, `cache/`, `conf/`, `data/`):
 
 ```bash
-ssh -t board 'cd functiongemma-chat && TEENYC_PATH=/nonexistent/teenyc TEENYC_CACHE_DIR=$PWD/kernel-cache TEENYC_CAPABILITY=spacemit-k3 ./chat --model-dir model'
+cargo teeny package --target spacemit-k3 -p teeny-llm --example chat \
+  --no-default-features --features functiongemma3,riscv --dest dist/functiongemma-k3
 ```
+
+`package` builds the kernels by running the example's ahead-of-time compile step, which the
+`chat` example does not take yet (teenygrad-12hs). The `riscv-rvv` profile targets other RVV 1.0
+boards.
+
+Add the model to `data/` (about 540 MB), deploy, and start the chat with `teenyc` disabled, so a
+missing kernel fails loudly instead of trying to compile:
+
+```bash
+mkdir -p dist/functiongemma-k3/data/model
+for f in config.json model.safetensors tokenizer.json chat_template.jinja special_tokens_map.json; do
+  cp -L "$GEMMA_MODEL_DIR/$f" dist/functiongemma-k3/data/model/
+done
+cargo teeny deploy --package dist/functiongemma-k3 --host board --dest functiongemma-chat
+ssh -t board 'cd functiongemma-chat && TEENYC_PATH=/nonexistent/teenyc TEENYC_CACHE_DIR=$PWD/cache TEENYC_CAPABILITY=spacemit-k3 bin/chat --model-dir data/model'
+```
+
+`deploy` only copies files the board does not have yet; pass `--overwrite` after a rebuild. Chat
+flags go after `--model-dir`, for example `--context 2048 --max-tokens 256`.
 
 ### 4. Using the chat
 
@@ -131,7 +139,7 @@ Processes start on the X100 cores, and `taskset -c 8-15` fails with "Invalid arg
 a process there, write its pid to SpacemiT's `/proc/set_ai_thread`; its children inherit it:
 
 ```bash
-ssh -t board 'cd functiongemma-chat && bash -c "echo \$\$ > /proc/set_ai_thread; TEENYC_PATH=/nonexistent/teenyc TEENYC_CACHE_DIR=\$PWD/kernel-cache TEENYC_CAPABILITY=spacemit-k3 exec ./chat --model-dir model"'
+ssh -t board 'cd functiongemma-chat && bash -c "echo \$\$ > /proc/set_ai_thread; TEENYC_PATH=/nonexistent/teenyc TEENYC_CACHE_DIR=\$PWD/cache TEENYC_CAPABILITY=spacemit-k3 exec bin/chat --model-dir data/model"'
 ```
 
 The answers are the same, but slower (8 threads each, before the thread pool):
@@ -155,7 +163,7 @@ gain.
 startup, so one chat uses both clusters; slower A100 threads simply take fewer chunks of work:
 
 ```bash
-ssh -t board 'cd functiongemma-chat && TEENY_RISCV_THREADS=16 TEENY_RISCV_AI_THREADS=8 TEENYC_PATH=/nonexistent/teenyc TEENYC_CACHE_DIR=$PWD/kernel-cache TEENYC_CAPABILITY=spacemit-k3 ./chat --model-dir model'
+ssh -t board 'cd functiongemma-chat && TEENY_RISCV_THREADS=16 TEENY_RISCV_AI_THREADS=8 TEENYC_PATH=/nonexistent/teenyc TEENYC_CACHE_DIR=$PWD/cache TEENYC_CAPABILITY=spacemit-k3 bin/chat --model-dir data/model'
 ```
 
 | | 8 X100 cores | 16 cores (8 X100 + 8 A100) |
