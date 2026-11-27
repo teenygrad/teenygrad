@@ -882,3 +882,215 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for LinearLanesBf16Runtime
         [(self.n / LANES) as u32, output_shape[0].div_ceil(ROW_TILE) as u32, 1]
     }
 }
+
+// ---------------------------------------------------------------------------
+// Int8 weights, output features as lanes
+// ---------------------------------------------------------------------------
+
+/// [`linear_lanes_bf16_forward`] on int8 weights with one f32 scale per output.
+///
+/// Decode reads every linear weight once per token and runs at memory bandwidth,
+/// so a byte per weight instead of two is the speedup. A weight is stored as
+/// `q + 128` in a byte (`q` in -127..=127) and becomes `q` with a widen and a
+/// subtract; the row's scale multiplies the sum once at the end.
+///
+/// The buffer is `[N / LANES][K][LANES]` bytes, then `N` f32 scales; `w_ptr` and
+/// `s_ptr` are the same buffer, read as bytes and as f32.
+///
+/// Grid: `(N / LANES, ceil(M / ROW_TILE))`.
+#[allow(clippy::multiple_bound_locations)]
+#[kernel]
+pub fn linear_lanes_i8_forward<T: Triton, D: Float, const LANES: i32>(
+    x_ptr: InPtr<T::Pointer<D>>,
+    w_ptr: InPtr<T::Pointer<u8>>,
+    s_ptr: InPtr<T::Pointer<D>>,
+    y_ptr: OutPtr<T::Pointer<D>>,
+    M: i32,
+    N: i32,
+    K: i32,
+) where
+    T: Triton<I32Tensor = <T as Triton>::Tensor<i32>>,
+    T::I32Tensor: Tensor<i32, 1>,
+    T::I32Tensor: core::ops::Add<i32, Output = T::I32Tensor>,
+    T::I32Tensor: core::ops::Sub<i32, Output = T::I32Tensor>,
+    T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
+    T::Pointer<u8>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<u8>>>,
+{
+    let nb = T::program_id(Axis::X);
+    let rt = T::program_id(Axis::Y);
+    let lanes = T::arange(0, LANES);
+    let splat = T::zeros::<i32>(&[LANES]);
+    let wbase = nb * K * LANES;
+    let r0 = rt * 4;
+    let col = nb * LANES;
+    let scale = T::load(s_ptr.add_offsets(lanes + (N * K / 4 + col)), None, None, &[], None, None, None, false);
+
+    if M - r0 == 1 {
+        let x0 = r0 * K;
+        let mut a0 = T::zeros::<D>(&[LANES]);
+        for k in 0..K {
+            let q = T::cast::<i32, D>(
+                T::cast::<u8, i32>(
+                    T::load(w_ptr.add_offsets(lanes + (wbase + k * LANES)), None, None, &[], None, None, None, false),
+                    None,
+                    false,
+                ) - 128,
+                None,
+                false,
+            );
+            a0 = a0 + q * T::load(x_ptr.add_offsets(splat + (x0 + k)), None, None, &[], None, None, None, false);
+        }
+        T::store(y_ptr.add_offsets(lanes + (r0 * N + col)), a0 * scale, None, &[], None, None);
+    } else {
+        let last = M - 1;
+        let r1 = if r0 + 1 < M { r0 + 1 } else { last };
+        let r2 = if r0 + 2 < M { r0 + 2 } else { last };
+        let r3 = if r0 + 3 < M { r0 + 3 } else { last };
+        let x0 = r0 * K;
+        let x1 = r1 * K;
+        let x2 = r2 * K;
+        let x3 = r3 * K;
+        let mut a0 = T::zeros::<D>(&[LANES]);
+        let mut a1 = T::zeros::<D>(&[LANES]);
+        let mut a2 = T::zeros::<D>(&[LANES]);
+        let mut a3 = T::zeros::<D>(&[LANES]);
+        for k in 0..K {
+            let q = T::cast::<i32, D>(
+                T::cast::<u8, i32>(
+                    T::load(w_ptr.add_offsets(lanes + (wbase + k * LANES)), None, None, &[], None, None, None, false),
+                    None,
+                    false,
+                ) - 128,
+                None,
+                false,
+            );
+            a0 = a0 + q * T::load(x_ptr.add_offsets(splat + (x0 + k)), None, None, &[], None, None, None, false);
+            a1 = a1 + q * T::load(x_ptr.add_offsets(splat + (x1 + k)), None, None, &[], None, None, None, false);
+            a2 = a2 + q * T::load(x_ptr.add_offsets(splat + (x2 + k)), None, None, &[], None, None, None, false);
+            a3 = a3 + q * T::load(x_ptr.add_offsets(splat + (x3 + k)), None, None, &[], None, None, None, false);
+        }
+        T::store(y_ptr.add_offsets(lanes + (r0 * N + col)), a0 * scale, None, &[], None, None);
+        T::store(y_ptr.add_offsets(lanes + (r1 * N + col)), a1 * scale, None, &[], None, None);
+        T::store(y_ptr.add_offsets(lanes + (r2 * N + col)), a2 * scale, None, &[], None, None);
+        T::store(y_ptr.add_offsets(lanes + (r3 * N + col)), a3 * scale, None, &[], None, None);
+    }
+}
+
+/// Quantises a row-major `[n, k]` matrix to the buffer [`linear_lanes_i8_forward`]
+/// reads: symmetric int8 per output row (`scale = max |w| / 127`), stored as
+/// `q + 128` in the `[n / LANES][k][LANES]` byte order, four bytes to a word, then
+/// the `n` scales.
+pub fn quantize_lanes_i8(values: &[f32], n: usize, k: usize) -> Result<Vec<f32>, String> {
+    if n % LANES != 0 || k % 4 != 0 || values.len() != n * k {
+        return Err(format!(
+            "int8 lanes: {} values are not {n} rows (a multiple of {LANES}) of {k} (a multiple of 4)",
+            values.len()
+        ));
+    }
+    let mut bytes = vec![0u8; n * k];
+    let mut scales = Vec::with_capacity(n);
+    for (r, row) in values.chunks_exact(k).enumerate() {
+        let max = row.iter().fold(0.0f32, |m, v| m.max(v.abs()));
+        let scale = if max > 0.0 { max / 127.0 } else { 1.0 };
+        let (block, lane) = (r / LANES, r % LANES);
+        for (c, &v) in row.iter().enumerate() {
+            let q = (v / scale).round().clamp(-127.0, 127.0) as i32;
+            bytes[(block * k + c) * LANES + lane] = (q + 128) as u8;
+        }
+        scales.push(scale);
+    }
+    let mut out: Vec<f32> = bytes
+        .chunks_exact(4)
+        .map(|b| f32::from_bits(u32::from_le_bytes([b[0], b[1], b[2], b[3]])))
+        .collect();
+    out.extend(scales);
+    Ok(out)
+}
+
+/// A bias-free linear on int8 weights with output features as lanes, for
+/// [`linear_lanes_i8_forward`]. Weight slot `weight_i8`: [`quantize_lanes_i8`]'s
+/// buffer, declared `[N, K / 4 + 1]` words.
+pub struct LinearLanesI8Op<D: FloatBytes + Send + Sync + 'static> {
+    /// Input features `K` (a multiple of 4).
+    pub k: usize,
+    /// Output features `N` (a multiple of [`LANES`]).
+    pub n: usize,
+    _phantom: PhantomData<D>,
+}
+
+impl<D: FloatBytes + Send + Sync + 'static> LinearLanesI8Op<D> {
+    /// Creates the op.
+    pub fn new(k: usize, n: usize) -> Self {
+        assert!(n.is_multiple_of(LANES), "int8 lanes: {n} outputs are not a multiple of {LANES}");
+        assert!(k.is_multiple_of(4), "int8 lanes: in features must be a multiple of 4");
+        Self { k, n, _phantom: PhantomData }
+    }
+}
+
+impl<D: FloatBytes + Send + Sync + 'static> CustomOp for LinearLanesI8Op<D> {
+    fn name(&self) -> &str {
+        "linear_lanes_i8"
+    }
+
+    fn infer_output_shape(&self, input_shapes: &[&Shape]) -> Shape {
+        vec![input_shapes[0][0], Some(self.n)]
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn lower(&self) -> Option<(String, String, String, Arc<dyn RuntimeOp>)> {
+        let kernel = LinearLanesI8Forward::<D>::new(LANES as i32);
+        Some((
+            "linear_lanes_i8_forward".to_string(),
+            kernel.source,
+            "entry_point".to_string(),
+            Arc::new(LinearLanesI8RuntimeOp::<D> { k: self.k, n: self.n, _phantom: PhantomData }),
+        ))
+    }
+}
+
+/// Runtime dispatch for [`LinearLanesI8Op`].
+pub struct LinearLanesI8RuntimeOp<D: FloatBytes + Send + Sync + 'static> {
+    k: usize,
+    n: usize,
+    _phantom: PhantomData<D>,
+}
+
+impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for LinearLanesI8RuntimeOp<D> {
+    fn n_activation_inputs(&self) -> usize {
+        1
+    }
+
+    fn param_shapes(&self, _input_shapes: &[&[usize]], _output_shape: &[usize]) -> Vec<Vec<usize>> {
+        vec![vec![self.n, self.k / 4 + 1]]
+    }
+
+    fn param_names(&self) -> &'static [&'static str] {
+        &["weight_i8"]
+    }
+
+    fn pack_args(
+        &self,
+        inputs: &[(RawPtr, &[usize])],
+        params: &[RawPtr],
+        output: RawPtr,
+        output_shape: &[usize],
+        _output_row_stride: i32,
+        visitor: &mut dyn ArgVisitor,
+    ) {
+        assert_eq!(inputs[0].1[1], self.k, "int8 lanes: input features");
+        visitor.visit_ptr(inputs[0].0);
+        visitor.visit_ptr(params[0]);
+        visitor.visit_ptr(params[0]);
+        visitor.visit_ptr(output);
+        visitor.visit_i32(output_shape[0] as i32);
+        visitor.visit_i32(self.n as i32);
+        visitor.visit_i32(self.k as i32);
+    }
+
+    fn grid(&self, output_shape: &[usize]) -> [u32; 3] {
+        [(self.n / LANES) as u32, output_shape[0].div_ceil(ROW_TILE) as u32, 1]
+    }
+}

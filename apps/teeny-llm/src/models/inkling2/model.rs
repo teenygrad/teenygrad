@@ -73,7 +73,7 @@ use super::kernels::{
     swiglu::SwigluOp,
 };
 use super::runner::Quant;
-use crate::kernels::linear::{LANES, Linear4Bf16Op, LinearLanesBf16Op};
+use crate::kernels::linear::{LANES, Linear4Bf16Op, LinearLanesBf16Op, LinearLanesI8Op};
 
 fn wrap(like: &SymTensor, node_id: usize, shape: Shape) -> SymTensor {
     SymTensor {
@@ -94,16 +94,22 @@ fn add(a: &SymTensor, b: &SymTensor) -> SymTensor {
     wrap(a, node_id, shape)
 }
 
-/// Records a bias-free linear in the current scope, naming its slot `weight_lanes`.
+/// Records a bias-free linear in the current scope, on int8 weights (`weight_i8`).
 ///
 /// Every linear weight in the checkpoint is bf16, so it is kept as bf16, two to a
 /// word, and widened exactly in the kernel: half the bytes of f32 for the same
 /// arithmetic, on projections that run at memory bandwidth. Output features are
-/// the lanes, so a batch of rows unpacks each weight once. A projection too narrow
+/// the lanes, so a batch of rows unpacks each weight once. Decode reads every
+/// weight once a token at memory bandwidth, so the weights are quantised to int8
+/// per output row at load: half the bytes again. A projection too narrow
 /// for whole blocks of lanes (24 outputs) keeps the lanes-along-`K` kernel and its
 /// `weight_bf16` slot.
 fn linear<D: FloatBytes + Send + Sync + 'static>(x: &SymTensor, k: usize, n: usize) -> SymTensor {
-    if n.is_multiple_of(LANES) {
+    // INKLING2_BF16_LINEARS keeps the exact bf16 weights, to compare against.
+    let int8 = std::env::var_os("INKLING2_BF16_LINEARS").is_none();
+    if int8 && n.is_multiple_of(LANES) && k.is_multiple_of(4) {
+        x.record_custom(CustomData::new(LinearLanesI8Op::<D>::new(k, n)), &[], None)
+    } else if n.is_multiple_of(LANES) {
         x.record_custom(CustomData::new(LinearLanesBf16Op::<D>::new(k, n)), &[], None)
     } else {
         x.record_custom(CustomData::new(Linear4Bf16Op::<D>::new(k, n, 16)), &[], None)
