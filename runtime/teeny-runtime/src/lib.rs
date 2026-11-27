@@ -93,6 +93,10 @@ mod backend {
     /// target (e.g. `format!("relu_mlir_{BACKEND_NAME}")`).
     pub const BACKEND_NAME: &str = "cuda";
 
+    /// Whether a kernel can read host memory through a plain pointer, so an input
+    /// can be passed in place rather than copied to the device. Not on CUDA.
+    pub const HOST_MEMORY: bool = false;
+
     /// Loads a [`compile_kernel`]-produced artifact at `path` (raw PTX text) into a ready-to-run
     /// [`Program`].
     pub fn load_program<K: Kernel>(path: &str) -> anyhow::Result<Program<'static, K>> {
@@ -201,6 +205,12 @@ mod backend {
     /// target (e.g. `format!("relu_mlir_{BACKEND_NAME}")`).
     pub const BACKEND_NAME: &str = "riscv";
 
+    /// Whether a kernel can read host memory through a plain pointer, so an input
+    /// can be passed in place rather than copied to the device. True where the
+    /// kernels run in this process on riscv64; not under the QEMU launcher, which
+    /// runs them in another process and copies the buffers it knows of.
+    pub const HOST_MEMORY: bool = cfg!(target_arch = "riscv64");
+
     /// Opens a [`compile_kernel`]-produced artifact (a RISC-V ELF shared library) at `path` and
     /// finds its entry point. Nothing is loaded into this process -- see [`Program`].
     pub fn load_program<K: Kernel>(path: &str) -> anyhow::Result<Program<'static, K>> {
@@ -241,7 +251,8 @@ mod backend {
 }
 
 pub use backend::{
-    BACKEND_NAME, Buffer, Context, Device, LaunchConfig, Program, Target, compile_kernel,
+    BACKEND_NAME, Buffer, Context, Device, HOST_MEMORY, LaunchConfig, Program, Target,
+    compile_kernel,
     default_target, launch_config, launch_config_custom, launch_config_grid,
     launch_config_with_grid, load_program, reference_target,
 };

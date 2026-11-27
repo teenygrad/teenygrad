@@ -304,6 +304,16 @@ impl<'a> BufferPool<'a> {
     }
 }
 
+/// One input to [`RuntimeModel::run_feeds`].
+#[derive(Clone, Copy, Debug)]
+pub enum Feed<'f> {
+    /// Copied into the input's device buffer.
+    Copy(&'f [f32]),
+    /// Read in place by the kernels, where they can read host memory, and copied
+    /// otherwise. For large inputs the kernels only read, such as a KV cache.
+    Borrow(&'f [f32]),
+}
+
 fn ptr(buf: &Buffer<'_, f32>) -> RawPtr {
     buf.as_device_ptr() as RawPtr
 }
@@ -358,8 +368,12 @@ pub struct RuntimeModel<'a> {
     topo: Vec<usize>,
     names: HashMap<usize, String>,
     trace: bool,
+    profile: bool,
     /// What the last run cost in activation buffers.
     buffers: BufferStats,
+    /// Inputs this run passes in place ([`Feed::Borrow`]): input node to the
+    /// caller's memory, which the kernels read instead of the node's buffer.
+    borrowed: HashMap<usize, RawPtr>,
 }
 
 impl<'a> RuntimeModel<'a> {
@@ -514,8 +528,11 @@ impl<'a> RuntimeModel<'a> {
             parents,
             topo,
             names,
-            trace: false,
+            // Set at load so a run can be profiled without rebuilding the caller.
+            trace: std::env::var_os("TEENY_RUNTIME_TRACE").is_some(),
+            profile: std::env::var_os("TEENY_RUNTIME_PROFILE").is_some(),
             buffers: BufferStats::default(),
+            borrowed: HashMap::new(),
         })
     }
 
@@ -751,29 +768,94 @@ impl<'a> RuntimeModel<'a> {
         Ok(out)
     }
 
-    /// Runs one forward pass. `inputs` are matched to `Input` nodes in topological order;
-    /// returns the outputs of the nodes in `outputs`, in that order.
+    /// Accumulates time per node name across every model in the process, for
+/// `TEENY_RUNTIME_PROFILE=<file>`: no per-launch output, so it measures what it
+/// times. Written to the file whenever a model is dropped, so the last write holds
+/// the whole run.
+fn profile_add(name: &str, elapsed: std::time::Duration) {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    static PROFILE: OnceLock<Mutex<HashMap<String, (u64, std::time::Duration)>>> = OnceLock::new();
+    let mut map = PROFILE
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if name == "\0dump" {
+        if let Some(path) = std::env::var_os("TEENY_RUNTIME_PROFILE") {
+            let mut rows: Vec<_> = map.iter().collect();
+            rows.sort_by(|a, b| b.1.1.cmp(&a.1.1));
+            let text: String = rows
+                .iter()
+                .map(|(k, (n, d))| format!("{:.3}\t{}\t{}\n", d.as_secs_f64() * 1e3, n, k))
+                .collect();
+            let _ = std::fs::write(path, text);
+        }
+        return;
+    }
+    let e = map.entry(name.to_string()).or_default();
+    e.0 += 1;
+    e.1 += elapsed;
+}
+
+    /// [`Self::run_feeds`] with every input copied.
     pub fn run(
         &mut self,
         device: &Device<'a>,
         inputs: &[&[f32]],
         outputs: &[usize],
     ) -> Result<Vec<Vec<f32>>> {
+        let feeds: Vec<Feed<'_>> = inputs.iter().map(|d| Feed::Copy(d)).collect();
+        self.run_feeds(device, &feeds, outputs)
+    }
+
+    /// Runs one forward pass. `inputs` are matched to `Input` nodes in topological order;
+    /// returns the outputs of the nodes in `outputs`, in that order.
+    ///
+    /// A [`Feed::Borrow`] input is read by the kernels where it is, for this run only,
+    /// when the backend's kernels can read host memory ([`teeny_runtime::HOST_MEMORY`]);
+    /// elsewhere it is copied like a [`Feed::Copy`].
+    pub fn run_feeds(
+        &mut self,
+        device: &Device<'a>,
+        inputs: &[Feed<'_>],
+        outputs: &[usize],
+    ) -> Result<Vec<Vec<f32>>> {
+        let run_started = Instant::now();
         let mut input_cursor = 0usize;
+        self.borrowed.clear();
         for &idx in &self.topo {
             if self.nodes[idx].op.is_none() {
-                let data = inputs
+                let feed = inputs
                     .get(input_cursor)
                     .ok_or_else(|| anyhow!("too few inputs: needed >{input_cursor}"))?;
-                let buffer = self.nodes[idx]
-                    .output
-                    .as_mut()
-                    .ok_or_else(|| anyhow!("input node {idx} holds no buffer"))?;
-                buffer.to_device(data)?;
+                match *feed {
+                    Feed::Borrow(data) if teeny_runtime::HOST_MEMORY => {
+                        let words: usize = self.nodes[idx].output_shape.iter().product();
+                        ensure!(
+                            data.len() == words,
+                            "input node {idx}: borrowed {} values, expected {words}",
+                            data.len()
+                        );
+                        self.borrowed.insert(idx, data.as_ptr() as RawPtr);
+                    }
+                    Feed::Copy(data) | Feed::Borrow(data) => {
+                        let buffer = self.nodes[idx]
+                            .output
+                            .as_mut()
+                            .ok_or_else(|| anyhow!("input node {idx} holds no buffer"))?;
+                        buffer.to_device(data)?;
+                    }
+                }
                 input_cursor += 1;
             }
         }
 
+        if self.trace {
+            eprintln!("inputs uploaded: {:.2?}", run_started.elapsed());
+        }
+        if self.profile {
+            Self::profile_add("(run) inputs", run_started.elapsed());
+        }
         // Anything the caller asks for is kept, whatever reads it; everything else goes
         // back in the pool once the last node that reads it has run.
         let pinned: BTreeSet<usize> = outputs.iter().copied().collect();
@@ -798,6 +880,10 @@ impl<'a> RuntimeModel<'a> {
                     .as_mut()
                     .ok_or_else(|| anyhow!("node {idx} holds no buffer to unpad into"))?;
                 buffer.to_device(&tight)?;
+            }
+            if self.profile {
+                let name = self.node_name(idx).unwrap_or("unnamed");
+                Self::profile_add(name, started.elapsed());
             }
             if self.trace {
                 eprintln!(
@@ -835,10 +921,23 @@ impl<'a> RuntimeModel<'a> {
             );
         }
 
-        outputs
+        let read_started = Instant::now();
+        let out = outputs
             .iter()
             .map(|&idx| self.read_output_f32(idx))
-            .collect()
+            .collect();
+        if self.profile {
+            Self::profile_add("(run) outputs", read_started.elapsed());
+            Self::profile_add("(run) total", run_started.elapsed());
+        }
+        if self.trace {
+            eprintln!(
+                "outputs read: {:.2?}; run total: {:.2?}",
+                read_started.elapsed(),
+                run_started.elapsed()
+            );
+        }
+        out
     }
 
     /// Launches node `idx`'s kernel(s). Returns `None` for an `Input` node, and otherwise the
@@ -854,10 +953,13 @@ impl<'a> RuntimeModel<'a> {
             .iter()
             .map(|&p| {
                 (
-                    self.nodes[p]
-                        .output
-                        .as_ref()
-                        .map_or(core::ptr::null_mut(), ptr),
+                    match self.borrowed.get(&p) {
+                        Some(borrowed) => *borrowed,
+                        None => self.nodes[p]
+                            .output
+                            .as_ref()
+                            .map_or(core::ptr::null_mut(), ptr),
+                    },
                     self.nodes[p].output_shape.as_slice(),
                 )
             })
@@ -941,5 +1043,13 @@ impl<'a> RuntimeModel<'a> {
                 .copied()
                 .collect(),
         )))
+    }
+}
+
+impl Drop for RuntimeModel<'_> {
+    fn drop(&mut self) {
+        if self.profile {
+            Self::profile_add("\0dump", std::time::Duration::ZERO);
+        }
     }
 }
