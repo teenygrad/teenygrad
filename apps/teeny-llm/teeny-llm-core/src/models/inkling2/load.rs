@@ -216,6 +216,21 @@ fn read_source(
                 "slot {slot} is declared {declared:?}, expected [rows, words + 1]"
             );
             let (n, k) = (declared[0], (declared[1] - 1) * 4);
+            // A converted checkpoint may carry the buffer already (inkling2_convert
+            // --add-int8), which turns seconds of quantising into a read.
+            if let Source::Tensor(name) = inner.as_ref() {
+                let stored = format!("{name}.i8");
+                if ck.has(&stored) {
+                    let buf = ck.param(&stored).map_err(|e| anyhow::anyhow!("slot {slot} reads {stored}: {e}"))?;
+                    anyhow::ensure!(
+                        buf.len() == n * (k / 4 + 1),
+                        "slot {slot}: {stored} holds {} words, expected {}",
+                        buf.len(),
+                        n * (k / 4 + 1)
+                    );
+                    return Ok(buf);
+                }
+            }
             let values = read_source(ck, slot, inner, &[n, k])?;
             quantize_lanes_i8(&values, n, k).map_err(|e| anyhow::anyhow!("slot {slot}: {e}"))?
         }

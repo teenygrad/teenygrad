@@ -34,6 +34,7 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use safetensors::tensor::{Dtype, TensorView};
+use teeny_llm_core::kernels::linear::{LANES, quantize_lanes_i8};
 use teeny_llm_core::models::inkling2::Inkling2Config;
 use teeny_llm_core::models::inkling2::kernels::{expert_gemv_mxfp8, expert_gemv_nvfp4};
 use teeny_llm_core::models::inkling2::runner::{Quant, quant_of};
@@ -48,8 +49,70 @@ struct Args {
     #[arg(long)]
     model: PathBuf,
     /// Where to write the converted checkpoint.
+    /// Where to write the converted checkpoint.
+    #[arg(long, required_unless_present = "add_int8")]
+    out: Option<PathBuf>,
+    /// Instead of converting, add the int8 linear weights to the converted
+    /// checkpoint at `--model`, in place, so loading reads them rather than
+    /// quantising at every start.
     #[arg(long)]
-    out: PathBuf,
+    add_int8: bool,
+}
+
+/// The name an int8 linear buffer is stored under, beside its weight.
+const INT8_SUFFIX: &str = ".i8";
+
+/// Writes `converted-int8.safetensors` into a converted checkpoint: for every 2-D
+/// linear weight the lanes kernel can take, the buffer [`quantize_lanes_i8`] gives,
+/// named `<weight>.i8`. The existing tensors are untouched, so a build that does
+/// not know these names reads the checkpoint as before.
+fn add_int8(dir: &std::path::Path) -> anyhow::Result<()> {
+    let mut ck = Checkpoint::open(dir)?;
+    anyhow::ensure!(ck.is_converted(), "{} is not a converted checkpoint", dir.display());
+    let mut names: Vec<String> = ck
+        .names()
+        .filter(|n| n.starts_with("model.llm.") && n.ends_with(".weight"))
+        .filter(|n| !n.contains(".mlp.experts") && *n != "model.llm.embed.weight")
+        .map(str::to_string)
+        .collect();
+    names.sort();
+    let mut owned: Vec<(String, Vec<usize>, Vec<u8>)> = Vec::new();
+    for name in &names {
+        let (values, shape, _) = ck.tensor(name)?;
+        let [n, k] = shape[..] else { continue };
+        if n % LANES != 0 || k % 4 != 0 {
+            continue;
+        }
+        let buf = quantize_lanes_i8(&values, n, k).map_err(|e| anyhow::anyhow!("{name}: {e}"))?;
+        owned.push((format!("{name}{INT8_SUFFIX}"), vec![buf.len()], bytes_of(&buf)));
+    }
+    let views: HashMap<String, TensorView> = owned
+        .iter()
+        .map(|(n, shape, bytes)| {
+            Ok((
+                n.clone(),
+                TensorView::new(Dtype::F32, shape.clone(), bytes)
+                    .map_err(|e| anyhow::anyhow!("view for {n}: {e}"))?,
+            ))
+        })
+        .collect::<anyhow::Result<_>>()?;
+    let shard = "converted-int8.safetensors";
+    std::fs::write(
+        dir.join(shard),
+        safetensors::serialize(&views, None).map_err(|e| anyhow::anyhow!("serialising {shard}: {e}"))?,
+    )?;
+    let index_path = dir.join("model.safetensors.index.json");
+    let mut idx: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&index_path)?)?;
+    let map = idx["weight_map"]
+        .as_object_mut()
+        .ok_or_else(|| anyhow::anyhow!("{} has no weight_map", index_path.display()))?;
+    for (n, _, _) in &owned {
+        map.insert(n.clone(), serde_json::Value::String(shard.to_string()));
+    }
+    std::fs::write(&index_path, serde_json::to_string_pretty(&idx)?)?;
+    let bytes: usize = owned.iter().map(|(_, _, b)| b.len()).sum();
+    println!("added {} int8 linears, {:.2} GB, to {}", owned.len(), bytes as f64 / 1e9, dir.display());
+    Ok(())
 }
 
 /// Bytes of an f32 slice, little-endian, for safetensors.
@@ -59,9 +122,13 @@ fn bytes_of(v: &[f32]) -> Vec<u8> {
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+    if args.add_int8 {
+        return add_int8(&args.model);
+    }
+    let out_dir = args.out.clone().expect("clap requires --out without --add-int8");
     let cfg = Inkling2Config::load(&args.model.join("config.json"))?.text_config;
     let mut ck = Checkpoint::open(&args.model)?;
-    std::fs::create_dir_all(&args.out)?;
+    std::fs::create_dir_all(&out_dir)?;
 
     // Only what the text model reads.
     let mut names: Vec<String> = ck
@@ -168,7 +235,7 @@ fn main() -> anyhow::Result<()> {
             .collect::<anyhow::Result<_>>()?;
         let blob = safetensors::serialize(&views, None)
             .map_err(|e| anyhow::anyhow!("serialising {shard}: {e}"))?;
-        std::fs::write(args.out.join(shard), blob)?;
+        std::fs::write(out_dir.join(shard), blob)?;
         println!("  {shard}: {} tensors", owned.len());
     }
 
@@ -183,7 +250,7 @@ fn main() -> anyhow::Result<()> {
         TensorView::new(Dtype::F32, vec![1], &bytes).map_err(|e| anyhow::anyhow!("marker: {e}"))?,
     );
     std::fs::write(
-        args.out.join("converted-marker.safetensors"),
+        out_dir.join("converted-marker.safetensors"),
         safetensors::serialize(&marker, None).map_err(|e| anyhow::anyhow!("marker: {e}"))?,
     )?;
     index.insert(
@@ -193,7 +260,7 @@ fn main() -> anyhow::Result<()> {
 
     let idx = serde_json::json!({ "weight_map": index });
     std::fs::write(
-        args.out.join("model.safetensors.index.json"),
+        out_dir.join("model.safetensors.index.json"),
         serde_json::to_string_pretty(&idx)?,
     )?;
     for f in [
@@ -204,13 +271,13 @@ fn main() -> anyhow::Result<()> {
     ] {
         let src = args.model.join(f);
         if src.exists() {
-            std::fs::copy(&src, args.out.join(f))?;
+            std::fs::copy(&src, out_dir.join(f))?;
         }
     }
     println!(
         "wrote {:.1} GB (format {CONVERTED_FORMAT}) to {}",
         total as f64 / 1e9,
-        args.out.display()
+        out_dir.display()
     );
     Ok(())
 }
