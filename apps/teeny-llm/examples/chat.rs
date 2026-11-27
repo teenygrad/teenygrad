@@ -44,6 +44,19 @@
 //! In both, `--tools` is a JSON list of OpenAI-style function declarations
 //! (default: the demo tools above).
 //!
+//! **Ahead-of-time builds.** `--device` (with `--options`, `--cache-dir` and `--force`, as
+//! teeny-cli's `AotArgs` define them) compiles every kernel of the step graphs into the cache
+//! and exits, without loading the weights or the tokenizer. This is what `cargo teeny package`
+//! runs on the host to give a board without `teenyc` its kernels:
+//!
+//! ```text
+//! cargo teeny package --target spacemit-k3 -p teeny-llm --example chat \
+//!     --no-default-features --features functiongemma3,riscv --dest dist/functiongemma-k3
+//! ```
+//!
+//! The kernels take the token count and the context length at launch, so one build serves
+//! any `--context` and `--chunk`.
+//!
 //! Decoding is greedy and stops at `<start_function_response>` (the model handing a call
 //! to the host), `<end_of_turn>` or `<eos>`.
 
@@ -113,10 +126,103 @@ struct Args {
     /// Tokens per prompt-processing step.
     #[arg(long, default_value_t = 16)]
     chunk: usize,
-    /// Compile the step graphs and exit. This is how the kernel cache is built on a host
-    /// with teenyc, before the binary is copied to a board that has none.
+    /// Load the model, compile the step graphs and exit, with the target and cache folder
+    /// from `TEENYC_CAPABILITY` and `TEENYC_CACHE_DIR`. `--device` does the same for an
+    /// ahead-of-time build without loading the weights.
     #[arg(long)]
     compile_only: bool,
+    #[command(flatten)]
+    aot: Aot,
+}
+
+/// The ahead-of-time compile flags `cargo teeny aot` and `cargo teeny package` pass
+/// (teeny-cli's `AotArgs`). With `--device`, the example compiles its kernels and exits.
+#[derive(clap::Args)]
+struct Aot {
+    /// Compile every kernel for this backend into the cache and exit, without loading the
+    /// weights. It must be the backend this build is for (`cuda` or `riscv`).
+    #[arg(long)]
+    device: Option<String>,
+    /// Compiler options as `key=value` pairs; `capability=<name>` picks the target (for
+    /// example `capability=spacemit-k3`, `capability=sm_90`).
+    #[arg(long, requires = "device")]
+    options: Option<String>,
+    /// Where to write the compiled kernels (default: `TEENYC_CACHE_DIR`).
+    #[arg(long, requires = "device")]
+    cache_dir: Option<PathBuf>,
+    /// Recompile kernels that are already cached.
+    #[arg(long, requires = "device")]
+    force: bool,
+}
+
+/// The `capability` in an `--options` string; any other key is refused, since nothing here
+/// would act on it.
+fn capability(options: Option<&str>) -> anyhow::Result<Option<String>> {
+    let mut capability = None;
+    for pair in options.unwrap_or_default().split(',').map(str::trim) {
+        match pair.split_once('=') {
+            _ if pair.is_empty() => {}
+            Some(("capability", value)) if !value.trim().is_empty() => {
+                capability = Some(value.trim().to_string());
+            }
+            _ => anyhow::bail!(
+                "--options {pair:?}: only capability=<name> is supported (for example \
+                 capability=spacemit-k3 or capability=sm_90)"
+            ),
+        }
+    }
+    Ok(capability)
+}
+
+/// The ahead-of-time build of `--device`: compiles the prompt-chunk and one-token steps'
+/// kernels for `--options`' capability into `--cache-dir`, loading only the model config.
+fn aot(args: &Args, device: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        device == runtime::BACKEND_NAME,
+        "--device {device}: this build compiles for {}; rebuild with the `{device}` feature",
+        runtime::BACKEND_NAME
+    );
+    let capability = capability(args.aot.options.as_deref())?;
+    let cache_dir = match &args.aot.cache_dir {
+        Some(dir) => {
+            std::fs::create_dir_all(dir)
+                .map_err(|e| anyhow::anyhow!("creating --cache-dir {}: {e}", dir.display()))?;
+            Some(std::fs::canonicalize(dir)?)
+        }
+        None => None,
+    };
+    // SAFETY: no other thread exists yet; the runtime reads these when it compiles.
+    unsafe {
+        if let Some(capability) = &capability {
+            std::env::set_var("TEENYC_CAPABILITY", capability);
+        }
+        if let Some(dir) = &cache_dir {
+            std::env::set_var("TEENYC_CACHE_DIR", dir);
+        }
+    }
+    let model_dir = args.model.locate(args.model_dir.as_deref())?;
+    let cfg = GemmaConfig::load(&model_dir.join("config.json"))?;
+    let device = runtime::open()?;
+    let t0 = Instant::now();
+    let mut steps = vec![args.chunk, 1];
+    steps.dedup();
+    for tokens in steps {
+        CompiledStep::precompile(&device, &cfg, tokens, args.context, args.aot.force)?;
+    }
+    println!(
+        "compiled {} kernels for {} ({}) in {:.1} s (context {}, chunk {}) into {}",
+        args.model,
+        runtime::BACKEND_NAME,
+        capability.as_deref().unwrap_or("default capability"),
+        t0.elapsed().as_secs_f64(),
+        args.context,
+        args.chunk,
+        cache_dir.map_or_else(
+            || std::env::var("TEENYC_CACHE_DIR").unwrap_or_else(|_| "the default cache".into()),
+            |d| d.display().to_string()
+        ),
+    );
+    Ok(())
 }
 
 /// Model text with FunctionGemma's markers and end-of-turn tokens removed.
@@ -339,6 +445,9 @@ fn main() -> anyhow::Result<()> {
         "this example runs FunctionGemma only, not {}",
         args.model
     );
+    if let Some(device) = &args.aot.device {
+        return aot(&args, device);
+    }
     let model_dir = args.model.locate(args.model_dir.as_deref())?;
     let parameters = args.model.parameter_count(&model_dir)?;
     let cfg = GemmaConfig::load(&model_dir.join("config.json"))?;

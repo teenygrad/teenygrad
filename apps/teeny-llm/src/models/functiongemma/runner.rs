@@ -109,20 +109,7 @@ impl<'d> CompiledStep<'d> {
         cache: usize,
         past: &PastLen,
     ) -> anyhow::Result<Self> {
-        let StepGraph { graph, outputs } = build_step::<f32>(cfg, tokens, cache, past);
-        let graph: &Graph = &graph.borrow();
-        let lowering = TritonLowering::new();
-        let (_, graph_to_dag) = lowering.lower_with_mapping(graph, LoweringMode::Inference)?;
-        let target = runtime::default_target(device)?;
-        let mut model = RuntimeModel::compile(
-            device,
-            graph,
-            &lowering,
-            LoweringMode::Inference,
-            &target,
-            tokens,
-            false,
-        )?;
+        let (mut model, out_idx) = Self::compile(device, cfg, tokens, cache, past, false)?;
         model.set_trace(trace());
         let slots: Vec<(String, usize, usize)> = model.param_info_named().collect();
         let mut used = std::collections::HashSet::new();
@@ -141,12 +128,55 @@ impl<'d> CompiledStep<'d> {
         );
         Ok(Self {
             model,
-            out_idx: outputs
-                .iter()
-                .map(|(_, t)| graph_to_dag[t.node_id])
-                .collect(),
+            out_idx,
             tokens,
         })
+    }
+
+    /// Compiles the step graph for `tokens` tokens into the kernel cache without loading
+    /// any weights: what an ahead-of-time build runs (`cargo teeny package`), so a device
+    /// without `teenyc` finds every kernel cached. The target and cache folder are the
+    /// runtime's (`TEENYC_CAPABILITY`, `TEENYC_CACHE_DIR`); `force` recompiles kernels that
+    /// are already cached.
+    pub fn precompile(
+        device: &runtime::Device<'d>,
+        cfg: &GemmaConfig,
+        tokens: usize,
+        cache: usize,
+        force: bool,
+    ) -> anyhow::Result<()> {
+        Self::compile(device, cfg, tokens, cache, &PastLen::default(), force).map(drop)
+    }
+
+    /// Records and compiles the step graph, returning the model (weights not yet loaded)
+    /// and the DAG indices of its outputs.
+    fn compile(
+        device: &runtime::Device<'d>,
+        cfg: &GemmaConfig,
+        tokens: usize,
+        cache: usize,
+        past: &PastLen,
+        force: bool,
+    ) -> anyhow::Result<(RuntimeModel<'d>, Vec<usize>)> {
+        let StepGraph { graph, outputs } = build_step::<f32>(cfg, tokens, cache, past);
+        let graph: &Graph = &graph.borrow();
+        let lowering = TritonLowering::new();
+        let (_, graph_to_dag) = lowering.lower_with_mapping(graph, LoweringMode::Inference)?;
+        let target = runtime::default_target(device)?;
+        let model = RuntimeModel::compile(
+            device,
+            graph,
+            &lowering,
+            LoweringMode::Inference,
+            &target,
+            tokens,
+            force,
+        )?;
+        let out_idx = outputs
+            .iter()
+            .map(|(_, t)| graph_to_dag[t.node_id])
+            .collect();
+        Ok((model, out_idx))
     }
 
     /// Runs the step on `inputs` (in [`super::model::step_inputs`] order), returning

@@ -1,0 +1,9 @@
+# Settings for cross (https://github.com/cross-rs/cross), which `cargo teeny build`, `package`
+# and `run` use to cross-compile for a board; cargo-teeny also takes this file to mark the
+# workspace root.
+#
+# RISC-V boards (`--target riscv-rvv` or `spacemit-k3`) build for riscv64gc-unknown-linux-gnu
+# with cross's stock image, so they need nothing here. A CUDA board (`jetson-orin-nano`) would
+# need a Dockerfile with the aarch64 CUDA toolkit, as in vision-rs's Cross.toml.
+
+[build]

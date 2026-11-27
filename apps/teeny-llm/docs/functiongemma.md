@@ -18,8 +18,9 @@ x86-64 Linux host, including every kernel, and copied over. To check the measure
 
 ### 1. Host prerequisites (once)
 
-Packaging and deploying go through [cargo-teeny](https://github.com/teenygrad/cargo-teeny); see
-its README for the cross-compilation prerequisites.
+Packaging and deploying go through [cargo-teeny](https://github.com/teenygrad/cargo-teeny) 0.1.5
+or later (earlier versions cannot find teenygrad's members, which the workspace lists as globs).
+It cross-compiles with `cross`, so it needs Docker; see its README for the rest.
 
 ```bash
 cargo install cargo-teeny
@@ -56,9 +57,10 @@ cargo teeny package --target spacemit-k3 -p teeny-llm --example chat \
   --no-default-features --features functiongemma3,riscv --dest dist/functiongemma-k3
 ```
 
-`package` builds the kernels by running the example's ahead-of-time compile step, which the
-`chat` example does not take yet (teenygrad-12hs). The `riscv-rvv` profile targets other RVV 1.0
-boards.
+`package` builds the kernels by running the example on the host with `--device riscv --options
+capability=spacemit-k3 --cache-dir <dest>/cache`, which compiles both step graphs without loading
+the weights. The kernels take the token count and context length at launch, so the package
+serves any `--context` and `--chunk`. The `riscv-rvv` profile targets other RVV 1.0 boards.
 
 Add the model to `data/` (about 540 MB), deploy, and start the chat with `teenyc` disabled, so a
 missing kernel fails loudly instead of trying to compile:
