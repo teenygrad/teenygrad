@@ -127,22 +127,23 @@ fn main() -> anyhow::Result<()> {
         messages.push(json!({"role": "user", "content": line}));
         let prompt = chat.prompt(&json!(messages), args.effort.as_deref())?;
 
-        // Everything already in the cache that still matches is kept; the rest is new.
-        let fresh = prompt.len()
-            - engine
-                .tokens
-                .iter()
-                .zip(&prompt)
-                .take_while(|(a, b)| *a == *b)
-                .count();
+        // The cache is kept when the prompt extends it. The template re-renders earlier
+        // replies without their thinking, so a later turn usually diverges from what the
+        // model generated; then the cache starts again and the whole conversation runs.
+        let shared = engine
+            .tokens
+            .iter()
+            .zip(&prompt)
+            .take_while(|(a, b)| *a == *b)
+            .count();
+        if shared < engine.tokens.len() || shared == prompt.len() {
+            engine.reset();
+        }
+        let fresh = prompt.len() - engine.tokens.len();
         anyhow::ensure!(
-            engine.tokens.len() + fresh <= args.context,
+            prompt.len() < args.context,
             "conversation needs more than --context {} tokens",
             args.context
-        );
-        anyhow::ensure!(
-            fresh == prompt.len() - engine.tokens.len(),
-            "the prompt diverges from what is cached; this demo cannot rewind, restart it"
         );
 
         let t_prompt = Instant::now();
