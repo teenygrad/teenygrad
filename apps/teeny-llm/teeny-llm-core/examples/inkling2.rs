@@ -55,6 +55,10 @@ struct Args {
     /// How much the model should think: none, minimal, low, medium, high, xhigh, max.
     #[arg(long)]
     effort: Option<String>,
+    /// Prompt tokens per engine step, up to the engine's maximum: a chunk reads each
+    /// weight once for all its tokens. 1 feeds the prompt a token at a time.
+    #[arg(long, default_value_t = teeny_llm_core::models::inkling2::engine::MAX_TOKENS)]
+    prompt_chunk: usize,
     /// A system turn to open the conversation with.
     #[arg(long)]
     system: Option<String>,
@@ -136,10 +140,13 @@ fn main() -> anyhow::Result<()> {
 
         let t_prompt = Instant::now();
         let mut logits = Vec::new();
-        for (i, token) in prompt[engine.tokens.len()..].iter().enumerate() {
-            eprint!("\r  prompt {}/{fresh}", i + 1);
+        let chunk = args.prompt_chunk.clamp(1, teeny_llm_core::models::inkling2::engine::MAX_TOKENS);
+        let mut done = 0usize;
+        for tokens in prompt[engine.tokens.len()..].chunks(chunk) {
+            logits = engine.step_many(&device, tokens)?;
+            done += tokens.len();
+            eprint!("\r  prompt {done}/{fresh}");
             std::io::stderr().flush()?;
-            logits = engine.step(&device, *token)?;
         }
         let prompt_s = t_prompt.elapsed().as_secs_f64();
         eprintln!(

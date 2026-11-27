@@ -124,6 +124,11 @@ impl<'d> Compiled<'d> {
         self.model.run(device, feeds, &self.outs)
     }
 
+    /// Makes later runs process `rows` tokens; see [`RuntimeModel::set_rows`].
+    fn set_rows(&mut self, rows: usize) -> anyhow::Result<()> {
+        self.model.set_rows(rows)
+    }
+
     /// [`Self::run`] with each input either copied or read in place.
     fn run_feeds(
         &mut self,
@@ -147,8 +152,20 @@ impl Builder {
         Self { graph, first }
     }
 
+    /// A graph whose first input is `shape`, `None` for a dimension that follows the
+    /// row count: the token count, for a graph that runs on several tokens at once.
+    fn new_dyn(shape: &[Option<usize>]) -> Self {
+        let (first, graph) = SymTensor::input(DtypeRepr::F32, shape.to_vec());
+        Self { graph, first }
+    }
+
     fn input(&self, shape: &[usize]) -> SymTensor {
         let shape: Vec<Option<usize>> = shape.iter().map(|&d| Some(d)).collect();
+        self.input_dyn(&shape)
+    }
+
+    fn input_dyn(&self, shape: &[Option<usize>]) -> SymTensor {
+        let shape: Vec<Option<usize>> = shape.to_vec();
         let node_id =
             self.graph
                 .borrow_mut()
@@ -193,6 +210,11 @@ pub fn block_counts(cfg: &Inkling2TextConfig) -> anyhow::Result<Vec<usize>> {
         .collect()
 }
 
+/// The most tokens one [`Engine::step_many`] processes: what every per-token graph
+/// is compiled for. A compiled graph runs at any count up to this with one copy of
+/// its weights, so this sizes only the activation buffers.
+pub const MAX_TOKENS: usize = 16;
+
 /// A loaded model, ready to generate.
 pub struct Engine<'d> {
     cfg: Inkling2TextConfig,
@@ -223,21 +245,26 @@ impl<'d> Engine<'d> {
         let past = PastLen::default();
         let core = cfg.loop_config.core_start..cfg.loop_config.core_end;
 
+        // Every graph that runs per token leaves the token count unknown (`None`) and
+        // is compiled for MAX_TOKENS, so one step can take a whole chunk of a prompt.
+        let t = None;
         let embed = {
-            let b = Builder::new(&[1]);
+            let b = Builder::new_dyn(&[t]);
             let out = build_embed::<f32>(&cfg, &b.first);
             let g: &Graph = &b.graph.borrow();
-            Compiled::new(device, g, &[&out], 1, ck, 0)?
+            Compiled::new(device, g, &[&out], MAX_TOKENS, ck, 0)?
         };
 
         let mut layers = Vec::with_capacity(cfg.num_hidden_layers);
         for layer in 0..cfg.num_hidden_layers {
             let n_states = blocks[layer];
-            let b = Builder::new(&[1, hid]);
+            let b = Builder::new_dyn(&[t, Some(hid)]);
             let boundary = layer % cfg.n_layers_per_attn_res_block == 0;
             let mlp_states = n_states + usize::from(boundary);
-            let block_states = b.input(&[n_states, hid]);
-            let mlp_block_states = b.input(&[mlp_states, hid]);
+            // [T, n, hidden]: the same bytes as the [T * n, hidden] the block
+            // attention reads, with the token count leading so it follows the rows.
+            let block_states = b.input_dyn(&[t, Some(n_states), Some(hid)]);
+            let mlp_block_states = b.input_dyn(&[t, Some(mlp_states), Some(hid)]);
             let k_hist = b.input(&[kw, kv]);
             let v_hist = b.input(&[kw, kv]);
             let attn_hist = b.input(&[kw, hid]);
@@ -246,8 +273,8 @@ impl<'d> Engine<'d> {
             let v_cache = b.input(&[capacity, kv]);
             let msgs: Option<Vec<SymTensor>> = core
                 .contains(&layer)
-                .then(|| (0..4).map(|_| b.input(&[1, hid])).collect());
-            let scale = msgs.as_ref().map(|_| b.input(&[1, hid]));
+                .then(|| (0..4).map(|_| b.input_dyn(&[t, Some(hid)])).collect());
+            let scale = msgs.as_ref().map(|_| b.input_dyn(&[t, Some(hid)]));
             let msg_refs: Option<[&SymTensor; 4]> =
                 msgs.as_ref().map(|m| [&m[0], &m[1], &m[2], &m[3]]);
             let inputs = LayerInputs {
@@ -279,17 +306,17 @@ impl<'d> Engine<'d> {
                 &out.conv_in[2],
                 &out.conv_in[3],
             ];
-            layers.push(Compiled::new(device, g, &outs, 1, ck, layer)?);
+            layers.push(Compiled::new(device, g, &outs, MAX_TOKENS, ck, layer)?);
         }
 
         let messages = {
             let n = message_states(&cfg).max(1);
-            let b = Builder::new(&[n, hid]);
-            let partial = b.input(&[1, hid]);
+            let b = Builder::new_dyn(&[t, Some(n), Some(hid)]);
+            let partial = b.input_dyn(&[t, Some(hid)]);
             let built = build_message_block::<f32>(&cfg, &b.first, &partial, n);
             let flat: Vec<&SymTensor> = built.iter().flatten().collect();
             let g: &Graph = &b.graph.borrow();
-            Compiled::new(device, g, &flat, n, ck, 0)?
+            Compiled::new(device, g, &flat, MAX_TOKENS, ck, 0)?
         };
 
         // The head sees the block states the last layer left behind: every boundary
@@ -309,6 +336,23 @@ impl<'d> Engine<'d> {
             Compiled::new(device, g, &[&out], 1, ck, 0)?
         };
 
+        if let Ok(path) = std::env::var("INKLING2_DUMP_SHAPES") {
+            let mut text = String::new();
+            for (name, graph) in [("embed", &embed), ("messages", &messages), ("head", &head)]
+                .into_iter()
+                .chain(layers.iter().enumerate().map(|(i, l)| (["layer"; 1][0], l)).take(0))
+            {
+                for (node, shape) in graph.model.node_shapes() {
+                    text += &format!("{name}\t{node}\t{shape:?}\n");
+                }
+            }
+            for (i, graph) in layers.iter().enumerate() {
+                for (node, shape) in graph.model.node_shapes() {
+                    text += &format!("layer{i}\t{node}\t{shape:?}\n");
+                }
+            }
+            std::fs::write(path, text)?;
+        }
         let state = State::new(&cfg, capacity);
         Ok(Self {
             cfg,
@@ -324,6 +368,29 @@ impl<'d> Engine<'d> {
 
     /// Runs one token through all 48 layer executions and returns its logits.
     pub fn step(&mut self, device: &runtime::Device<'d>, token: u32) -> anyhow::Result<Vec<f32>> {
+        self.step_many(device, &[token])
+    }
+
+    /// Runs `tokens`, up to [`MAX_TOKENS`] of them, through all 48 layer executions
+    /// at once, and returns the last one's logits.
+    ///
+    /// The same computation as [`Self::step`] on each token in turn: attention is
+    /// causal within the step, and every per-token state (block states, messages) is
+    /// kept per token. What changes is that each weight is read once for all of them,
+    /// which is what makes a prompt fast.
+    pub fn step_many(
+        &mut self,
+        device: &runtime::Device<'d>,
+        tokens: &[u32],
+    ) -> anyhow::Result<Vec<f32>> {
+        let t = tokens.len();
+        anyhow::ensure!(
+            (1..=MAX_TOKENS).contains(&t),
+            "a step takes 1 to {MAX_TOKENS} tokens, not {t}"
+        );
+        for graph in self.layers.iter_mut().chain([&mut self.embed, &mut self.messages]) {
+            graph.set_rows(t)?;
+        }
         let hid = self.cfg.hidden_size;
         let kw = self.cfg.sconv_kernel_size - 1;
         let kv = self.cfg.num_key_value_heads * self.cfg.head_dim;
@@ -345,7 +412,7 @@ impl<'d> Engine<'d> {
         let mut layer_input: Vec<f32> = Vec::new();
         let mut dumped_messages = false;
 
-        let ids = [token as f32];
+        let ids: Vec<f32> = tokens.iter().map(|&id| id as f32).collect();
         let mut x = self.embed.run(device, &[&ids])?.remove(0);
 
         // The messages of the pass being run, 12 loop layers by 4 each, and the states
@@ -353,9 +420,9 @@ impl<'d> Engine<'d> {
         let core_start = self.cfg.loop_config.core_start;
         let mut messages: Vec<Vec<f32>> = Vec::new();
         let mut saved: Option<(Vec<f32>, Vec<Vec<f32>>)> = None;
-        let zeros_msg = vec![0.0f32; hid];
-        let ones = vec![1.0f32; hid];
-        let zeros = vec![0.0f32; hid];
+        let zeros_msg = vec![0.0f32; t * hid];
+        let ones = vec![1.0f32; t * hid];
+        let zeros = vec![0.0f32; t * hid];
 
         for action in actions(&self.cfg) {
             match action {
@@ -371,18 +438,11 @@ impl<'d> Engine<'d> {
                     // The reference retrieves from the blocks this pass appended, less
                     // its first, with the previous pass's final hidden state stacked on.
                     let want = message_states(&self.cfg).max(1);
-                    let all = self.state.blocks.clone();
-                    let take: Vec<f32> = all
-                        .iter()
-                        .rev()
-                        .take(want)
-                        .rev()
-                        .flat_map(|b| b.iter().copied())
-                        .collect();
-                    let states = if take.len() == want * hid {
-                        take
+                    let n = self.state.blocks.len();
+                    let states = if n >= want {
+                        interleave_blocks(&self.state.blocks[n - want..], t, hid)
                     } else {
-                        vec![0.0f32; want * hid]
+                        vec![0.0f32; t * want * hid]
                     };
                     messages = self.messages.run(device, &[&states, &x])?;
                     // Only the first pass's messages: the dump is a single file, and
@@ -409,14 +469,15 @@ impl<'d> Engine<'d> {
                     layer_input.clone_from(&x);
                     let slot = step.cache;
                     let n_states = self.state.n_blocks();
-                    let block_in = self.state.block_input(1);
+                    let block_in = self.state.block_input(t);
                     // At a boundary the MLP's stack already holds this layer's input;
                     // the host appends it here rather than the graph, because the
-                    // attention before it must still see the shallower stack.
+                    // attention before it must still see the shallower stack. Each
+                    // token's own input goes on its own stack.
                     let mlp_in = if step.is_boundary {
-                        let mut v = block_in.clone();
-                        v.extend_from_slice(&x);
-                        v
+                        let mut stack = self.state.blocks.clone();
+                        stack.push(x.clone());
+                        interleave_blocks(&stack, t, hid)
                     } else {
                         block_in.clone()
                     };
@@ -439,7 +500,7 @@ impl<'d> Engine<'d> {
                         feeds.push(if on_pass { &ones } else { &zeros });
                     }
                     anyhow::ensure!(
-                        n_states * hid == block_in.len(),
+                        t * n_states * hid == block_in.len(),
                         "layer {} expected {n_states} block states, got {} floats",
                         step.layer,
                         block_in.len()
@@ -480,11 +541,13 @@ impl<'d> Engine<'d> {
                     .with_context(|| format!("writing the execution trace to {p}"))?;
             }
         }
-        self.state.len += 1;
+        self.state.len += t;
         self.past.set(self.state.len);
-        self.tokens.push(token);
-        let head_blocks = self.state.block_input(1);
-        Ok(self.head.run(device, &[&head_blocks, &x])?.remove(0))
+        self.tokens.extend_from_slice(tokens);
+        // Only the last token's logits are wanted: its block states and hidden state.
+        let last = |v: &[f32]| v[(t - 1) * hid..t * hid].to_vec();
+        let head_blocks: Vec<f32> = self.state.blocks.iter().flat_map(|b| last(b)).collect();
+        Ok(self.head.run(device, &[&head_blocks, &last(&x)])?.remove(0))
     }
 
     /// The most likely next token, masked to the real vocabulary.
@@ -510,4 +573,18 @@ impl<'d> Engine<'d> {
     pub fn executions(&self) -> usize {
         plan(&self.cfg).len()
     }
+}
+
+/// `blocks`, each `[T, hidden]` (one row per token), as `[T, blocks, hidden]`: each
+/// token's states together, which is how the block attention reads a stack.
+fn interleave_blocks(blocks: &[Vec<f32>], tokens: usize, hidden: usize) -> Vec<f32> {
+    let n = blocks.len();
+    let mut out = vec![0.0f32; tokens * n * hidden];
+    for (s, block) in blocks.iter().enumerate() {
+        for t in 0..tokens {
+            let to = (t * n + s) * hidden;
+            out[to..to + hidden].copy_from_slice(&block[t * hidden..(t + 1) * hidden]);
+        }
+    }
+    out
 }
