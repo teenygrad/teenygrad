@@ -160,6 +160,42 @@ impl Checkpoint {
         Ok(ck)
     }
 
+    /// The checkpoint's directory.
+    pub fn dir(&self) -> &Path {
+        &self.dir
+    }
+
+    /// Maps every shard, so [`Self::f32_slice`] can lend any tensor through a shared
+    /// borrow. Mapping is lazy on the kernel's side; it reads nothing.
+    pub fn map_all(&mut self) -> anyhow::Result<()> {
+        let names: Vec<String> = self.index.keys().cloned().collect();
+        for name in names {
+            self.shard(&name)?;
+        }
+        Ok(())
+    }
+
+    /// A stored f32 tensor, borrowed from its mapping without a copy: `None` when its
+    /// shard is not mapped yet ([`Self::map_all`]), it is not f32, or its bytes are
+    /// not 4-aligned in the file.
+    pub fn f32_slice(&self, name: &str) -> Option<&[f32]> {
+        let map = self.shards.get(self.index.get(name)?)?;
+        let st = SafeTensors::deserialize(&map[..]).ok()?;
+        let view = st.tensor(name).ok()?;
+        if view.dtype() != Dtype::F32 || cfg!(target_endian = "big") {
+            return None;
+        }
+        // The view borrows `map`, which `self` owns; re-borrow its bytes from the
+        // mapping itself so the slice outlives the parsed header.
+        let raw = view.data();
+        let start = raw.as_ptr() as usize - map.as_ptr() as usize;
+        let bytes = &map[start..start + raw.len()];
+        // Safety: f32 has no invalid bit patterns, and `align_to` only hands back
+        // the aligned middle, which is all of it when the prefix is empty.
+        let (pre, mid, post) = unsafe { bytes.align_to::<f32>() };
+        (pre.is_empty() && post.is_empty()).then_some(mid)
+    }
+
     /// Tensor names in the checkpoint.
     pub fn names(&self) -> impl Iterator<Item = &str> {
         self.index.keys().map(String::as_str)

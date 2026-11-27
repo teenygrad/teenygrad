@@ -193,6 +193,65 @@ pub fn read(
         .collect()
 }
 
+/// The stored tensor a slot's values are, unchanged, if there is one: then they can
+/// go from the checkpoint's mapping to the device without a copy in between.
+///
+/// Mirrors the branches of [`read_source`] that return a stored tensor as it is,
+/// which on a converted checkpoint is nearly all of them by bytes.
+fn stored_as_is(ck: &Checkpoint, src: &Source) -> Option<String> {
+    let name = match src {
+        Source::Tensor(name) => name.clone(),
+        Source::InterleavedWeight(name) if ck.is_converted() => name.clone(),
+        Source::InterleavedScale(prefix) if ck.is_converted() => format!("{prefix}_scale"),
+        Source::LanesI8(inner) => match inner.as_ref() {
+            Source::Tensor(name) => format!("{name}.i8"),
+            _ => return None,
+        },
+        _ => return None,
+    };
+    ck.has(&name).then_some(name)
+}
+
+/// [`read`] for loading, through a shared checkpoint with every shard mapped
+/// ([`Checkpoint::map_all`]): a slot whose values are a stored f32 tensor as it is
+/// comes back borrowed from the mapping, and only the rest are computed, through
+/// `private`, which is opened on first need.
+///
+/// Borrowing skips both the decode into a fresh vector and that vector's memory,
+/// which for the converted Mini is almost every byte loaded.
+pub fn read_shared<'a>(
+    ck: &'a Checkpoint,
+    private: &mut Option<Checkpoint>,
+    slots: &[String],
+    shapes: &[Vec<usize>],
+    layer: usize,
+) -> anyhow::Result<Vec<(String, std::borrow::Cow<'a, [f32]>)>> {
+    use std::borrow::Cow;
+    anyhow::ensure!(
+        shapes.len() == slots.len(),
+        "{} slots but {} shapes",
+        slots.len(),
+        shapes.len()
+    );
+    resolve(slots, layer)
+        .into_iter()
+        .zip(shapes)
+        .map(|((slot, src), declared)| {
+            let want: usize = declared.iter().product();
+            if let Some(slice) = stored_as_is(ck, &src).and_then(|n| ck.f32_slice(&n)) {
+                if slice.len() == want {
+                    return Ok((slot, Cow::Borrowed(slice)));
+                }
+            }
+            if private.is_none() {
+                *private = Some(Checkpoint::open(ck.dir())?);
+            }
+            let own = private.as_mut().expect("opened above");
+            Ok((slot.clone(), Cow::Owned(read_source(own, &slot, &src, declared)?)))
+        })
+        .collect()
+}
+
 /// Reads the values one slot's source describes. `declared` is the slot's shape.
 fn read_source(
     ck: &mut Checkpoint,
