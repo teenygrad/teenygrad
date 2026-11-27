@@ -155,7 +155,14 @@ pub mod load;
 pub mod model;
 pub mod naming;
 pub mod runner;
+#[cfg(any(feature = "cuda", feature = "qemu", feature = "riscv"))]
+pub mod serve;
 pub mod session;
 pub mod weights;
 
 pub use config::{Inkling2Config, Inkling2TextConfig, LoopConfig};
+
+#[cfg(any(feature = "cuda", feature = "qemu", feature = "riscv"))]
+pub use serve::Inkling2Chat;
+#[cfg(any(feature = "cuda", feature = "qemu", feature = "riscv"))]
+pub(crate) use serve::load;

@@ -258,6 +258,18 @@ impl Model {
         match self {
             #[cfg(feature = "functiongemma3")]
             Model::FunctionGemma3 => super::functiongemma::load(self, options),
+            #[cfg(all(
+                feature = "inkling2",
+                any(feature = "cuda", feature = "qemu", feature = "riscv")
+            ))]
+            Model::Inkling2Mini => super::inkling2::load(self, options),
+            #[cfg(all(
+                feature = "inkling2",
+                not(any(feature = "cuda", feature = "qemu", feature = "riscv"))
+            ))]
+            Model::Inkling2Mini => Err(Error::Inference(
+                "inkling2 needs a backend: build with cuda, riscv or qemu".into(),
+            )),
         }
     }
 }

@@ -437,10 +437,27 @@ The rebased build answers token for token as before, at the same speed. teeny-ll
 enables `functiongemma3` and `cuda` by default, so Inkling-2 builds and tests take
 `--no-default-features --features inkling2,riscv` (or `qemu`).
 
+## Benchmarking with teeny-bench
+
+Inkling-2 is `Model::Inkling2Mini` (`inkling2:mini`). `models::inkling2::serve` serves it
+as a `ChatModel` from a worker thread that owns the engine, as FunctionGemma's does. A
+request that extends the cached conversation runs only its new tokens; any other empties
+the cache first (`Engine::reset`). Build `teeny-bench` with
+`--no-default-features --features inkling2,riscv` and point it at a converted checkpoint:
+
+```bash
+teeny-bench --model inkling2:mini --model-dir ~/models/Inkling-2-Mini-converted-v2 -p 64 -n 32 -r 2
+```
+
+On the K3, with the kernel cache staged as for the chat:
+
+| test | prompt | generated | tokens/s | first token | p50 | p90 |
+| ---- | -----: | --------: | -------: | ----------: | --: | --: |
+| pp64 | 64 | 1 | 5.5 | 11.5 s | | |
+| tg32 | 29 | 32 | 3.2 | 4.8 s | 314 ms | 316 ms |
+
 ## Not done
 
-- **Inkling-2 in `teeny-bench`** needs a `Model::Inkling2` variant and a `ChatModel`
-  worker like FunctionGemma's `serve.rs`.
 - **A logit-level check** of the int8 activations and int8 linears against the f32
   build, beyond greedy text.
 - **Why the attention fusion did not speed decode up.** Its per-op profile did not

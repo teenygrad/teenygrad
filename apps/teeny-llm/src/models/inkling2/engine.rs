@@ -397,6 +397,24 @@ impl<'d> Engine<'d> {
         }
     }
 
+    /// Empties the sequence, for a conversation that shares nothing with the cached one.
+    ///
+    /// The key and value caches need no clearing, since attention reads only up to the
+    /// sequence length, but the convolution windows and block states carry over between
+    /// tokens and start from zero.
+    pub fn reset(&mut self) {
+        for slot in &mut self.state.conv {
+            for window in slot.iter_mut() {
+                window.fill(0.0);
+            }
+        }
+        self.state.blocks.clear();
+        self.state.len = 0;
+        self.past.set(0);
+        self.tokens.clear();
+        self.undo = None;
+    }
+
     /// Takes the sequence back to `len` tokens, within the latest step: as if that
     /// step had been given only its first `len - start` tokens.
     ///
