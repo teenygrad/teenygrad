@@ -162,6 +162,34 @@ fn resolve_shape(shape: &Shape, batch_size: usize) -> Vec<usize> {
     shape.iter().map(|d| d.unwrap_or(batch_size)).collect()
 }
 
+/// Every DAG node's concrete shape at `rows` rows, for the nodes the graph maps to.
+///
+/// Inputs take `rows` for their unknown dimensions; every other node applies its own
+/// shape rule ([`teeny_core::graph::infer_output_shape`]) to its inputs' concrete
+/// shapes. Filling unknowns with `rows` node by node instead would be wrong for any
+/// op downstream of one whose row count is not the input's -- a linear after a
+/// regroup to `rows * heads`, say, would get `rows`.
+fn concrete_dag_shapes(graph: &Graph, graph_to_dag: &[usize], rows: usize) -> HashMap<usize, Vec<usize>> {
+    let mut shapes: Vec<Shape> = Vec::with_capacity(graph.nodes.len());
+    for node in &graph.nodes {
+        let shape = if node.inputs.is_empty() {
+            node.shape.clone()
+        } else {
+            let inputs: Vec<&Shape> = node.inputs.iter().map(|&i| &shapes[i]).collect();
+            teeny_core::graph::infer_output_shape(&node.op, &inputs)
+        };
+        shapes.push(shape.iter().map(|d| Some(d.unwrap_or(rows))).collect());
+    }
+    graph_to_dag
+        .iter()
+        .enumerate()
+        .filter_map(|(gi, &di)| {
+            let shape = shapes.get(gi)?;
+            Some((di, shape.iter().map(|d| d.unwrap_or(rows)).collect()))
+        })
+        .collect()
+}
+
 /// How many `f32` words `n_elems` elements of `dtype` occupy. Storage is always words,
 /// since kernels only ever see the raw pointer.
 fn buffer_words(n_elems: usize, dtype: DtypeRepr) -> usize {
@@ -384,6 +412,10 @@ pub struct RuntimeModel<'a> {
     max_rows: usize,
     /// The row count runs use now; see [`Self::set_rows`].
     rows: usize,
+    /// The graph and its mapping onto the DAG, to re-resolve shapes for a new row
+    /// count ([`concrete_dag_shapes`]).
+    graph: Graph,
+    graph_to_dag: Vec<usize>,
 }
 
 impl<'a> RuntimeModel<'a> {
@@ -412,6 +444,7 @@ impl<'a> RuntimeModel<'a> {
             names.entry(dag_idx).or_insert(name);
         }
 
+        let dag_shapes = concrete_dag_shapes(graph, &graph_to_dag, batch_size);
         // Compiled artifact path -> loaded program, so identical kernels load once.
         let mut programs: HashMap<String, Rc<Program<'static, PackedKernel>>> = HashMap::new();
         let mut shapes: Vec<Vec<usize>> = vec![Vec::new(); n];
@@ -419,7 +452,10 @@ impl<'a> RuntimeModel<'a> {
 
         for &idx in &topo {
             let op = op_dag.node(idx).value.as_ref();
-            let raw_output_shape = resolve_shape(op.output_shape(), batch_size);
+            let raw_output_shape = dag_shapes
+                .get(&idx)
+                .cloned()
+                .unwrap_or_else(|| resolve_shape(op.output_shape(), batch_size));
             let dtype = op.output_dtype();
 
             let Some(runtime_op) = op.runtime_op().filter(|_| !op.is_input()) else {
@@ -549,7 +585,21 @@ impl<'a> RuntimeModel<'a> {
             borrowed: HashMap::new(),
             max_rows: batch_size,
             rows: batch_size,
+            graph: graph.clone(),
+            graph_to_dag,
         })
+    }
+
+    /// Every node's name (or index) and current concrete shape, in run order, for
+    /// comparing how two builds of a graph resolve.
+    pub fn node_shapes(&self) -> Vec<(String, Vec<usize>)> {
+        self.topo
+            .iter()
+            .map(|&i| {
+                let name = self.node_name(i).map_or_else(|| format!("#{i}"), str::to_string);
+                (name, self.nodes[i].output_shape.clone())
+            })
+            .collect()
     }
 
     /// The row count the model was compiled for: the most [`Self::set_rows`] accepts.
@@ -583,11 +633,15 @@ impl<'a> RuntimeModel<'a> {
             return Ok(());
         }
         // Resolve every node first, and commit only if all of them can follow.
+        let dag_shapes = concrete_dag_shapes(&self.graph, &self.graph_to_dag, rows);
         let mut shapes: Vec<Vec<usize>> = vec![Vec::new(); self.nodes.len()];
         let mut words: Vec<usize> = vec![0; self.nodes.len()];
         for &idx in &self.topo {
             let node = &self.nodes[idx];
-            let raw = resolve_shape(&node.graph_shape, rows);
+            let raw = dag_shapes
+                .get(&idx)
+                .cloned()
+                .unwrap_or_else(|| resolve_shape(&node.graph_shape, rows));
             let shape = match &node.op {
                 None => raw,
                 Some(op) => {

@@ -120,6 +120,7 @@ impl<D: FloatBytes + Send + Sync + 'static> CustomOp for RegroupOp<D> {
             kernel.source,
             "entry_point".to_string(),
             Arc::new(RegroupRuntimeOp::<D> {
+                factor: self.factor,
                 _phantom: PhantomData,
             }),
         ))
@@ -128,12 +129,19 @@ impl<D: FloatBytes + Send + Sync + 'static> CustomOp for RegroupOp<D> {
 
 /// Runtime dispatch for [`RegroupOp`].
 pub struct RegroupRuntimeOp<D: FloatBytes + Send + Sync + 'static> {
+    factor: usize,
     _phantom: PhantomData<D>,
 }
 
 impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for RegroupRuntimeOp<D> {
     fn n_activation_inputs(&self) -> usize {
         1
+    }
+
+    /// `factor` times the input's rows, each `factor` times narrower, which a graph
+    /// that leaves the token count unknown cannot say until the rows are known.
+    fn compute_concrete_output_shape(&self, input_shapes: &[&[usize]], _resolved: &[usize]) -> Vec<usize> {
+        vec![input_shapes[0][0] * self.factor, input_shapes[0][1] / self.factor]
     }
 
     fn param_shapes(&self, _input_shapes: &[&[usize]], _output_shape: &[usize]) -> Vec<Vec<usize>> {
