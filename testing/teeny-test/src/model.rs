@@ -462,6 +462,22 @@ fn loaded_program(path: &str) -> Result<Rc<Program<'static, PackedKernel>>> {
 }
 
 impl<'a> RuntimeModel<'a> {
+    /// Every op node in run order as `(node, name, parents, native library)`, for
+    /// analysing a schedule offline: the name is the recorded one or `#<node>`, the
+    /// parents are DAG node indices (inputs included), and the library is set for ops
+    /// that launch a prebuilt one ([`teeny_core::model::RuntimeOp::native_library`]).
+    pub fn dag(&self) -> Vec<(usize, String, Vec<usize>, Option<String>)> {
+        self.topo
+            .iter()
+            .filter_map(|&idx| {
+                let op = self.nodes[idx].op.as_ref()?;
+                let name = self.names.get(&idx).cloned().unwrap_or_else(|| format!("#{idx}"));
+                let lib = op.runtime_op.native_library().map(|p| p.to_string_lossy().into_owned());
+                Some((idx, name, self.parents[idx].clone(), lib))
+            })
+            .collect()
+    }
+
     /// Which DAG node each graph node lowered to, as the lowering reported it.
     pub fn graph_to_dag(&self) -> &[usize] {
         &self.graph_to_dag

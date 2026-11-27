@@ -592,6 +592,19 @@ impl<'d> Engine<'d> {
             eprintln!("load: {:.1} s with {LOAD_WORKERS} loader threads", t_load.elapsed().as_secs_f64());
         }
 
+        // INKLING2_DUMP_DAG names a file for every layer graph's op nodes, one per
+        // line: layer, node, name, A100 (1) or not, parents. For simulating schedules.
+        if let Ok(path) = std::env::var("INKLING2_DUMP_DAG") {
+            let mut text = String::new();
+            for (i, graph) in layers.iter().enumerate() {
+                for (node, name, parents, lib) in graph.model.dag() {
+                    let a100 = lib.is_some_and(|l| l.contains("linear_ime"));
+                    let parents: Vec<String> = parents.iter().map(usize::to_string).collect();
+                    text += &format!("{i}\t{node}\t{name}\t{}\t{}\n", u8::from(a100), parents.join(","));
+                }
+            }
+            std::fs::write(path, text)?;
+        }
         if let Ok(path) = std::env::var("INKLING2_DUMP_SHAPES") {
             let mut text = String::new();
             for (name, graph) in [("embed", &embed), ("messages", &messages), ("head", &head)] {
