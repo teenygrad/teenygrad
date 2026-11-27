@@ -2336,3 +2336,87 @@ fn test_mxfp8_gemv_matches_the_f32_gather() {
     assert_close("mxfp8 gemv vs f32 gather", &got, &want, 1e-4);
     assert!(want.iter().any(|v| v.abs() > 1e-3), "non-trivial output");
 }
+
+/// One compiled model serves every row count up to the one it was built for: the
+/// NVFP4 expert path (quantise, then the integer projection) and a bf16 linear,
+/// compiled for four tokens, give the same rows run as four tokens at once as run
+/// one token at a time, with one copy of the weights.
+#[test]
+fn test_one_model_runs_at_any_row_count_up_to_its_own() {
+    let (max_t, e, n, k, top_k) = (4usize, 3usize, 32usize, 64usize, 2usize);
+    let (words, _, scales) = nvfp4_case(e * n, k, 701);
+    let w_r = interleave_row_bytes(&words, e, n, k / 2, ROWS);
+    let half: Vec<f32> = scales.iter().map(|s| s * 0.5).collect();
+    let s_r = interleave_rows(&half, e, n, k / 16, ROWS);
+    let lin: Vec<f32> = values(8 * k, 702)
+        .iter()
+        .map(|v| f32::from_bits(v.to_bits() & 0xFFFF_0000))
+        .collect();
+    let lin_packed = pack_bf16_halves(&lin, 8, k).expect("bf16 weights pack");
+
+    // Rows left unknown, so they follow the row count.
+    let (x, graph) = SymTensor::input(DtypeRepr::F32, vec![None, Some(k)]);
+    let ids_node = graph
+        .borrow_mut()
+        .add_node(Op::Input, vec![], DtypeRepr::F32, vec![None, Some(2 * top_k)]);
+    let ids = SymTensor {
+        node_id: ids_node,
+        graph: graph.clone(),
+        dtype: DtypeRepr::F32,
+        shape: vec![None, Some(2 * top_k)],
+    };
+    let experts = {
+        let _scope = name_scope("op");
+        x.record_custom(CustomData::new(QuantRowsQ8Op::<f32>::new(k)), &[], None)
+            .record_custom(
+                CustomData::new(ExpertGemvNvfp4Op::<f32>::new(e, n, k, top_k)),
+                &[&ids],
+                None,
+            )
+    };
+    let linear = {
+        let _scope = name_scope("lin");
+        x.record_custom(CustomData::new(Linear4Bf16Op::<f32>::new(k, 8, 16)), &[], None)
+    };
+    let g: &Graph = &graph.borrow();
+    let lowering = TritonLowering::new();
+    let (_, to_dag) = lowering
+        .lower_with_mapping(g, LoweringMode::Inference)
+        .expect("lowering");
+    let device = runtime::open().expect("opening the device");
+    let target = runtime::default_target(&device).expect("the device's target");
+    let mut model = RuntimeModel::compile(&device, g, &lowering, LoweringMode::Inference, &target, max_t, false)
+        .expect("compiling");
+    for (name, node, idx) in model.param_info_named().collect::<Vec<_>>() {
+        let data: &[f32] = match name.as_str() {
+            "op.weight_rows" => &w_r,
+            "op.folded_scale_rows" => &s_r,
+            "lin.weight_bf16" => &lin_packed,
+            other => panic!("unexpected parameter {other}"),
+        };
+        model.load_param_f32(node, idx, data).expect("loading a parameter");
+    }
+    let outs = [to_dag[experts.node_id], to_dag[linear.node_id]];
+
+    let xs = values(max_t * k, 703);
+    let routes = [2usize, 0, 1, 2, 0, 1, 2, 2];
+    let packed = packed_router_ids(&routes, max_t, top_k);
+    let all = model.run(&device, &[&xs, &packed], &outs).expect("running four rows");
+    assert_eq!(all[0].len(), max_t * top_k * n);
+    assert_eq!(all[1].len(), max_t * 8);
+
+    model.set_rows(1).expect("one row");
+    for t in 0..max_t {
+        let one = model
+            .run(
+                &device,
+                &[&xs[t * k..(t + 1) * k], &packed[t * 2 * top_k..(t + 1) * 2 * top_k]],
+                &outs,
+            )
+            .expect("running one row");
+        assert_eq!(one[0], all[0][t * top_k * n..(t + 1) * top_k * n], "token {t}, experts");
+        assert_eq!(one[1], all[1][t * 8..(t + 1) * 8], "token {t}, linear");
+    }
+    assert!(model.set_rows(max_t + 1).is_err(), "more rows than compiled");
+    assert_eq!(model.rows(), 1, "a refused row count leaves the old one");
+}
