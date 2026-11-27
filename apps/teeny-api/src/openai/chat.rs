@@ -33,22 +33,6 @@ use super::error::ApiError;
 use super::timings::Timings;
 use super::{FinishReason, OneOrMany, StreamOptions, Usage};
 
-/// Base64 as clients send it inline: the standard alphabet, padding optional.
-const LENIENT_BASE64: base64::engine::GeneralPurpose = base64::engine::GeneralPurpose::new(
-    &base64::alphabet::STANDARD,
-    base64::engine::GeneralPurposeConfig::new()
-        .with_decode_padding_mode(base64::engine::DecodePaddingMode::Indifferent),
-);
-
-/// Decodes inline audio or file data, ignoring whitespace (line-wrapped data); padding
-/// is optional.
-fn decode_base64(text: &str) -> Result<Vec<u8>, String> {
-    let digits: Vec<u8> = text.bytes().filter(|b| !b.is_ascii_whitespace()).collect();
-    LENIENT_BASE64
-        .decode(&digits)
-        .map_err(|e| format!("invalid base64 ({} digits): {e}", digits.len()))
-}
-
 /// Message roles, as in `ChatCompletionRequestMessage` and `ChatCompletionStreamResponseDelta`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -321,7 +305,7 @@ fn user_parts(
                         .input_audio
                         .ok_or_else(|| invalid("audio part is missing `input_audio`", &format!("{at}.input_audio")))?;
                     chat::ContentPart::Audio {
-                        data: decode_base64(&audio.data)
+                        data: super::base64::decode(&audio.data)
                             .map_err(|e| invalid(e, &format!("{at}.input_audio.data")))?,
                         format: audio_format(&audio.format, &format!("{at}.input_audio.format"))?,
                     }
@@ -334,7 +318,7 @@ fn user_parts(
                         .file_data
                         .map(|d| {
                             let b64 = d.split_once(";base64,").map_or(d.as_str(), |(_, b)| b);
-                            decode_base64(b64).map_err(|e| invalid(e, &format!("{at}.file.file_data")))
+                            super::base64::decode(b64).map_err(|e| invalid(e, &format!("{at}.file.file_data")))
                         })
                         .transpose()?;
                     chat::ContentPart::File {
@@ -1060,22 +1044,6 @@ pub fn delta_from_core(d: chat::Delta) -> ChatCompletionStreamResponseDelta {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_decode_base64_is_lenient_about_padding_and_whitespace() {
-        for (raw, b64) in [
-            ("", ""),
-            ("f", "Zg=="),
-            ("fo", "Zm8="),
-            ("foobar", "Zm9vYmFy"),
-        ] {
-            assert_eq!(BASE64_STANDARD.encode(raw), b64);
-            assert_eq!(decode_base64(b64).unwrap(), raw.as_bytes());
-        }
-        assert_eq!(decode_base64("Zm9v\nYg").unwrap(), b"foob");
-        assert!(decode_base64("Z").is_err());
-        assert!(decode_base64("Zm9v!").is_err());
-        assert!(decode_base64("Zh==").is_err());
-    }
     use serde_json::json;
 
     fn parse(v: Value) -> Result<chat::ChatRequest, ApiError> {

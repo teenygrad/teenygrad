@@ -23,6 +23,8 @@
 #[cfg(feature = "audio")]
 pub mod audio;
 #[cfg(feature = "llm")]
+mod base64;
+#[cfg(feature = "llm")]
 pub mod chat;
 #[cfg(feature = "llm")]
 pub mod completions;
