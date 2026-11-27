@@ -159,6 +159,11 @@ pub fn linear4_forward<T: Triton, D: Float, const BLOCK: i32>(
 /// top half of an f32, so each half becomes its f32 exactly with a shift or a mask
 /// and a bitcast: half the bytes of [`linear4_forward`] for the same arithmetic.
 ///
+/// Program ids run down the rows, as [`linear4_rows_forward`]'s do: consecutive ids
+/// compute the same four outputs for consecutive rows, and the launcher hands each
+/// thread a run of consecutive ids, so a batch of rows reads those outputs' weights
+/// from memory once and from cache for the rest. With one row it is the same order.
+///
 /// Grid: `M * N / 4`.
 #[allow(clippy::multiple_bound_locations)]
 #[kernel]
@@ -166,6 +171,7 @@ pub fn linear4_bf16_forward<T: Triton, D: Float, const BLOCK: i32>(
     x_ptr: InPtr<T::Pointer<D>>,
     w_ptr: InPtr<T::Pointer<D>>,
     y_ptr: OutPtr<T::Pointer<D>>,
+    M: i32,
     N: i32,
     K: i32,
 ) where
@@ -179,9 +185,8 @@ pub fn linear4_bf16_forward<T: Triton, D: Float, const BLOCK: i32>(
     T::Pointer<D>: AddOffsets<i32, 1, T::I32Tensor, Output = T::Tensor<T::Pointer<D>>>,
 {
     let pid = T::program_id(Axis::X);
-    let groups = N / 4;
-    let m = pid / groups;
-    let n = (pid % groups) * 4;
+    let m = pid % M;
+    let n = (pid / M) * 4;
     let half_k = K / 2;
 
     let offs = T::arange(0, BLOCK);
@@ -622,7 +627,7 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for Linear4Bf16RuntimeOp<D
         inputs: &[(RawPtr, &[usize])],
         params: &[RawPtr],
         output: RawPtr,
-        _output_shape: &[usize],
+        output_shape: &[usize],
         _output_row_stride: i32,
         visitor: &mut dyn ArgVisitor,
     ) {
@@ -630,6 +635,7 @@ impl<D: FloatBytes + Send + Sync + 'static> RuntimeOp for Linear4Bf16RuntimeOp<D
         visitor.visit_ptr(inputs[0].0);
         visitor.visit_ptr(params[0]);
         visitor.visit_ptr(output);
+        visitor.visit_i32(output_shape[0] as i32);
         visitor.visit_i32(self.n as i32);
         visitor.visit_i32(self.k as i32);
     }
