@@ -441,7 +441,32 @@ pub struct RuntimeModel<'a> {
     graph_to_dag: Vec<usize>,
 }
 
+thread_local! {
+    /// Compiled artifact path to loaded program, for every model this thread compiles:
+    /// a model built as one graph per layer has the same kernels in every layer, and
+    /// loading them once per model cost 8 ms a node, 10 s for Inkling-2-Mini.
+    static PROGRAMS: std::cell::RefCell<HashMap<String, Rc<Program<'static, PackedKernel>>>> =
+        std::cell::RefCell::new(HashMap::new());
+}
+
+/// The program at `path`, loaded on first use by this thread.
+fn loaded_program(path: &str) -> Result<Rc<Program<'static, PackedKernel>>> {
+    if let Some(p) = PROGRAMS.with(|m| m.borrow().get(path).cloned()) {
+        return Ok(p);
+    }
+    let p = Rc::new(
+        teeny_runtime::load_program::<PackedKernel>(path).with_context(|| format!("loading {path}"))?,
+    );
+    PROGRAMS.with(|m| m.borrow_mut().insert(path.to_string(), Rc::clone(&p)));
+    Ok(p)
+}
+
 impl<'a> RuntimeModel<'a> {
+    /// Which DAG node each graph node lowered to, as the lowering reported it.
+    pub fn graph_to_dag(&self) -> &[usize] {
+        &self.graph_to_dag
+    }
+
     /// Lowers `graph`, compiles every op's forward kernel for `target`, and allocates all
     /// parameter and activation buffers on `device` for `batch_size`.
     pub fn compile<'l, L: Lowering<'l>>(
@@ -453,7 +478,9 @@ impl<'a> RuntimeModel<'a> {
         batch_size: usize,
         force: bool,
     ) -> Result<Self> {
+        let t_compile = Instant::now();
         let (op_dag, graph_to_dag) = lowering.lower_with_mapping(graph, mode)?;
+        Self::profile_add("\0compile:lowering", t_compile.elapsed());
         let n = op_dag.len();
         let topo = op_dag.topological_sort();
         let parents: Vec<Vec<usize>> = (0..n).map(|i| op_dag.node(i).parents.clone()).collect();
@@ -468,8 +495,6 @@ impl<'a> RuntimeModel<'a> {
         }
 
         let dag_shapes = concrete_dag_shapes(graph, &graph_to_dag, batch_size);
-        // Compiled artifact path -> loaded program, so identical kernels load once.
-        let mut programs: HashMap<String, Rc<Program<'static, PackedKernel>>> = HashMap::new();
         let mut shapes: Vec<Vec<usize>> = vec![Vec::new(); n];
         let mut nodes: Vec<Option<Node<'a>>> = (0..n).map(|_| None).collect();
 
@@ -513,19 +538,13 @@ impl<'a> RuntimeModel<'a> {
                 "no forward kernel source for op {}",
                 op.name()
             );
+            let t_lookup = Instant::now();
             let path = teeny_runtime::compile_kernel(&ExecKernel(op), target, force, false)
                 .with_context(|| format!("compiling node {idx} ({})", op.name()))?;
-            let program = match programs.get(&path) {
-                Some(p) => Rc::clone(p),
-                None => {
-                    let p = Rc::new(
-                        teeny_runtime::load_program::<PackedKernel>(&path)
-                            .with_context(|| format!("loading {path}"))?,
-                    );
-                    programs.insert(path, Rc::clone(&p));
-                    p
-                }
-            };
+            Self::profile_add("\0compile:lookup", t_lookup.elapsed());
+            let t_program = Instant::now();
+            let program = loaded_program(&path)?;
+            Self::profile_add("\0compile:program", t_program.elapsed());
 
             let param_shapes = runtime_op.param_shapes(&parent_shapes, &output_shape);
             let mut params = Vec::with_capacity(param_shapes.len());
@@ -609,7 +628,10 @@ impl<'a> RuntimeModel<'a> {
             pool: BufferPool::default(),
             max_rows: batch_size,
             rows: batch_size,
-            graph: graph.clone(),
+            graph: {
+                Self::profile_add("\0compile:total", t_compile.elapsed());
+                graph.clone()
+            },
             graph_to_dag,
         })
     }
