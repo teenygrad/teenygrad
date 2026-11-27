@@ -14,14 +14,14 @@
  * limitations under the License.
  */
 
-//! The weather tool the chat and the web demo both offer FunctionGemma.
+//! The weather tool the chat example offers FunctionGemma.
 //!
 //! It is the one demo tool that reads from the outside world and writes nothing, so it is
-//! the only one the public demo exposes. [`declaration`] is what the model is told about
+//! the only one safe to expose to strangers. [`declaration`] is what the model is told about
 //! it; [`weather`] is what actually runs when the model calls it.
 //!
 //! [`weather`] returns one more field than the model should see: `scene`, which carries what
-//! the web demo needs to paint the sky (local time, day or night, wind bearing, cloud cover).
+//! a client can draw the sky with (local time, day or night, wind bearing, cloud cover).
 //! Pass the result through [`model_view`] before putting it in a `tool` message, or the model
 //! reads those numbers out loud.
 
@@ -258,7 +258,7 @@ fn measurements(text: &str) -> Vec<f64> {
 
 /// The same result with `scene` removed: what goes back to the model.
 ///
-/// The scene fields exist for the browser. Handing them to a 270M model just invites it to
+/// The scene fields exist for a client to draw. Handing them to a 270M model just invites it to
 /// recite a wind bearing and a cloud-cover percentage nobody asked for.
 pub fn model_view(result: &Value) -> Value {
     let mut v = result.clone();
@@ -271,9 +271,8 @@ pub fn model_view(result: &Value) -> Value {
     v
 }
 
-/// A WMO weather code in words. The web demo also keys its icon off this text, so the
-/// wording is part of the interface: keep the arms in step with `conditionIcon` in
-/// `examples/assets/functiongemma/index.html`.
+/// A WMO weather code in words. A client may key an icon off this text, so the wording is
+/// part of the interface.
 pub fn conditions(code: u64) -> &'static str {
     match code {
         0 => "clear sky",
@@ -546,11 +545,11 @@ mod tests {
     #[test]
     fn test_a_hailstorm_is_reported_as_a_thunderstorm() {
         // 96 and 99 are "thunderstorm with slight hail" and "with heavy hail", and Open-Meteo
-        // will also sell us hail by the millimetre as its own variable. The demo wants neither:
-        // every storm reads as one word and the page draws one storm for it, so folding the
+        // will also sell us hail by the millimetre as its own variable. The tool wants neither:
+        // every storm reads as one word, and an icon keyed off it shows one storm, so folding the
         // hail codes in is the decision, not an oversight. This test is here so that splitting
         // them out later is a deliberate act with a failing test to notice, rather than a
-        // quiet change that leaves the page drawing rain at a hailstorm.
+        // quiet change that leaves an icon showing rain at a hailstorm.
         for code in [95, 96, 97, 98, 99] {
             assert_eq!(conditions(code), "thunderstorm", "code {code}");
         }
@@ -716,7 +715,7 @@ mod tests {
         ] {
             assert_eq!(seen[kept], full[kept], "model_view dropped {kept}");
         }
-        // The original is untouched, since the browser still needs it.
+        // The original is untouched, since a client may still want the scene.
         assert!(full.get("scene").is_some());
     }
 }

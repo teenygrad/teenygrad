@@ -14,14 +14,13 @@
  * limitations under the License.
  */
 
-//! FunctionGemma on teenygrad, on whichever backend the build selects (CUDA, or RISC-V on
-//! a board), in one of three modes:
+//! FunctionGemma on teenygrad in the terminal, on whichever backend the build selects
+//! (CUDA, or RISC-V on a board), in one of two modes:
 //!
 //! ```text
 //! cargo run --release -p teeny-llm --example chat -- [--tools tools.json]
 //! cargo run --release -p teeny-llm --example chat -- --mode tool \
 //!     --prompt "What is the weather in Paris?"
-//! cargo run --release -p teeny-llm --example chat -- --mode serve
 //! ```
 //!
 //! `--model` picks the model by tag, `family:size` or the family alone for its default size
@@ -42,35 +41,14 @@
 //! **`tool`** answers one `--prompt` and prints the function calls the model chooses,
 //! without running them.
 //!
-//! In both of those, `--tools` is a JSON list of OpenAI-style function declarations
+//! In both, `--tools` is a JSON list of OpenAI-style function declarations
 //! (default: the demo tools above).
-//!
-//! **`serve`** is a web demo: ask about the weather in a browser, and watch the model call
-//! the tool while the page paints the city's real sky. It serves one page and one endpoint:
-//!
-//! - `GET /` the page in `examples/assets/functiongemma/index.html`, compiled into the binary.
-//! - `POST /api/chat` takes `{"message": "...", "history": [...]}` and answers with an
-//!   event stream: `token` as the reply is generated, `tool_call` and `tool_result`
-//!   around the weather lookup, `done` with the timings, or `error`.
-//!
-//! The only tool it offers is `get_weather` ([`teeny_llm::models::functiongemma::tools`]),
-//! which reads from Open-Meteo and writes nothing. The timer and outbox tools are
-//! deliberately not offered there: the server is meant to face the open internet, where
-//! anything that writes is a liability. The model is one set of weights and one KV cache,
-//! so the server generates one reply at a time and answers 503 while it is busy rather than
-//! queueing. The conversation lives in the browser and arrives with each request, which
-//! keeps visitors from seeing each other's chats; the cost is that each turn re-renders the
-//! whole conversation, though the KV cache still keeps whatever prefix matches. The server
-//! speaks plain HTTP: put it behind a TLS-terminating reverse proxy before exposing it, and
-//! see `--public-url` for what the page reports to visitors.
 //!
 //! Decoding is greedy and stops at `<start_function_response>` (the model handing a call
 //! to the host), `<end_of_turn>` or `<eos>`.
 
-use std::io::{BufRead, BufReader, Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::io::{BufRead, Write};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 use clap::{Parser, ValueEnum};
@@ -82,20 +60,6 @@ use teeny_llm::models::functiongemma::runner::{CompiledStep, Session, Weights, a
 use teeny_llm::models::functiongemma::tools;
 use teeny_llm::timings::{Recorder, Timings};
 use teeny_test::model::runtime;
-
-/// The demo page, compiled in so the board needs no files beside the binary.
-const INDEX_HTML: &str = include_str!("assets/functiongemma/index.html");
-
-/// Longest question accepted, in bytes. Long prompts are slow on a board, and the context
-/// is small, so this is a kindness to the next visitor as much as a guard.
-const MAX_MESSAGE_BYTES: usize = 500;
-
-/// Most turns of history a request may carry. Older turns are dropped by the page, but a
-/// handwritten client could send anything.
-const MAX_HISTORY_MESSAGES: usize = 20;
-
-/// Longest request body accepted, in bytes.
-const MAX_BODY_BYTES: usize = 64 * 1024;
 
 /// `--model`'s parser: the tags of the models in this build, as [`Model`]s.
 fn model_parser() -> impl clap::builder::TypedValueParser<Value = Model> {
@@ -110,8 +74,6 @@ enum Mode {
     Chat,
     /// One request: print the function calls the model chooses.
     Tool,
-    /// The weather web demo, served over HTTP.
-    Serve,
 }
 
 #[derive(Parser)]
@@ -125,16 +87,14 @@ struct Args {
     /// model's snapshot in the local Hugging Face cache.
     #[arg(long)]
     model_dir: Option<PathBuf>,
-    /// `chat` for a terminal conversation, `tool` for a single request's function calls,
-    /// `serve` for the weather web demo.
+    /// `chat` for a conversation, `tool` for a single request's function calls.
     #[arg(long, value_enum, default_value_t = Mode::Chat)]
     mode: Mode,
     /// The request, in `tool` mode.
     #[arg(long, required_if_eq("mode", "tool"))]
     prompt: Option<String>,
-    /// In `chat` and `tool` modes, a JSON file with the tool declarations (OpenAI style).
-    /// Defaults to a few demo tools: weather, timer, messaging. `serve` offers only the
-    /// weather tool.
+    /// A JSON file with the tool declarations (OpenAI style). Defaults to a few demo tools:
+    /// weather, timer, messaging.
     #[arg(long)]
     tools: Option<PathBuf>,
     /// In `chat` mode, type each tool's result yourself rather than running the demo
@@ -153,18 +113,6 @@ struct Args {
     /// Tokens per prompt-processing step.
     #[arg(long, default_value_t = 16)]
     chunk: usize,
-    /// In `serve` mode, the address to listen on. The default is loopback: pass
-    /// 0.0.0.0:8080 to accept connections from the network, and only behind a reverse proxy
-    /// you trust.
-    #[arg(long, default_value = "127.0.0.1:8080")]
-    listen: String,
-    /// In `serve` mode, the URL visitors reach this through, shown on the page. Defaults to
-    /// `--listen`.
-    #[arg(long)]
-    public_url: Option<String>,
-    /// In `serve` mode, what the page calls the machine it is running on.
-    #[arg(long, default_value = "SpacemiT K3")]
-    board: String,
     /// Compile the step graphs and exit. This is how the kernel cache is built on a host
     /// with teenyc, before the binary is copied to a board that has none.
     #[arg(long)]
@@ -180,21 +128,8 @@ fn visible(text: &str) -> String {
     t.trim().to_string()
 }
 
-/// `text` cut to `limit` bytes on a character boundary, for a log line.
-fn truncate(text: &str, limit: usize) -> &str {
-    if text.len() <= limit {
-        return text;
-    }
-    let mut end = limit;
-    while end > 0 && !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    &text[..end]
-}
-
 /// The part of a reply meant for a reader. A function call is the model addressing the
-/// runtime, not the reader, so it is shown as a tool card (or a `call:` line) instead and
-/// never as prose.
+/// runtime, not the reader, so it is shown as a `call:` line instead and never as prose.
 fn speech(text: &str) -> String {
     let t = visible(text);
     match t.find("<start_function_call>") {
@@ -203,43 +138,21 @@ fn speech(text: &str) -> String {
     }
 }
 
-/// One generation's measurements, as the page and the terminal modes show them.
-trait Report {
-    fn to_json(&self, context_used: usize, context_total: usize) -> Value;
-    fn report(&self, context_used: usize, context_total: usize) -> String;
-}
-
-impl Report for Timings {
-    fn to_json(&self, context_used: usize, context_total: usize) -> Value {
-        let ms = |d: Option<std::time::Duration>| d.map(|d| d.as_secs_f64() * 1e3);
-        json!({
-            "prompt_tokens": self.prompt_tokens,
-            "prompt_per_s": self.prompt_tokens_per_second(),
-            "first_token_s": self.first_token.as_secs_f64(),
-            "out_tokens": self.generated_tokens,
-            "decode_per_s": self.generation_tokens_per_second(),
-            "decode_p50_ms": ms(self.latency_percentile(50.0)),
-            "decode_p99_ms": ms(self.latency_percentile(99.0)),
-            "context_used": context_used,
-            "context_total": context_total,
-        })
-    }
-
-    /// The same measurements as one line, for the terminal modes.
-    fn report(&self, context_used: usize, context_total: usize) -> String {
-        format!(
-            "  [{} new prompt tokens in {:.2} s ({:.1} tokens/s); first token after {:.2} s; \
-             {} tokens out at {:.1} tokens/s decode; context {}/{}]",
-            self.prompt_tokens,
-            self.prompt.as_secs_f64(),
-            self.prompt_tokens_per_second(),
-            self.first_token.as_secs_f64(),
-            self.generated_tokens,
-            self.generation_tokens_per_second(),
-            context_used,
-            context_total
-        )
-    }
+/// One generation's measurements as one line: prompt and decode speed, and how much of
+/// the context the conversation uses.
+fn report(timings: &Timings, context_used: usize, context_total: usize) -> String {
+    format!(
+        "  [{} new prompt tokens in {:.2} s ({:.1} tokens/s); first token after {:.2} s; \
+         {} tokens out at {:.1} tokens/s decode; context {}/{}]",
+        timings.prompt_tokens,
+        timings.prompt.as_secs_f64(),
+        timings.prompt_tokens_per_second(),
+        timings.first_token.as_secs_f64(),
+        timings.generated_tokens,
+        timings.generation_tokens_per_second(),
+        context_used,
+        context_total
+    )
 }
 
 struct Engine<'d> {
@@ -305,295 +218,6 @@ impl Engine<'_> {
         }
         Ok((self.chat.decode(&out)?, timings.finish()))
     }
-}
-
-// ---------------------------------------------------------------------------
-// A small HTTP/1.1 server
-// ---------------------------------------------------------------------------
-//
-// Hand-written on `std::net` rather than pulling in a web framework: this binary is
-// cross-compiled for riscv64 and copied to a board, and the fewer dependencies that have
-// to build for that target, the better. It serves exactly the two routes the demo needs.
-
-/// A parsed request: the method, the path and the body.
-struct Request {
-    method: String,
-    path: String,
-    body: Vec<u8>,
-}
-
-/// Reads one request. `None` if the connection closed before a request line arrived.
-fn read_request(stream: &mut BufReader<&TcpStream>) -> anyhow::Result<Option<Request>> {
-    let mut line = String::new();
-    if stream.read_line(&mut line)? == 0 {
-        return Ok(None);
-    }
-    let mut parts = line.split_whitespace();
-    let method = parts.next().unwrap_or_default().to_string();
-    let path = parts.next().unwrap_or_default().to_string();
-
-    let mut length = 0usize;
-    loop {
-        let mut header = String::new();
-        if stream.read_line(&mut header)? == 0 {
-            break;
-        }
-        let header = header.trim_end();
-        if header.is_empty() {
-            break;
-        }
-        if let Some(v) = header.strip_prefix("Content-Length:") {
-            length = v.trim().parse().unwrap_or(0);
-        } else if let Some(v) = header.strip_prefix("content-length:") {
-            length = v.trim().parse().unwrap_or(0);
-        }
-    }
-    anyhow::ensure!(
-        length <= MAX_BODY_BYTES,
-        "request body of {length} bytes is over the {MAX_BODY_BYTES} byte limit"
-    );
-    let mut body = vec![0u8; length];
-    stream.read_exact(&mut body)?;
-    Ok(Some(Request { method, path, body }))
-}
-
-/// Writes a complete response with a body.
-fn respond(
-    stream: &mut TcpStream,
-    status: &str,
-    content_type: &str,
-    body: &[u8],
-) -> std::io::Result<()> {
-    write!(
-        stream,
-        "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\n\
-         Cache-Control: no-store\r\nConnection: close\r\n\r\n",
-        body.len()
-    )?;
-    stream.write_all(body)?;
-    stream.flush()
-}
-
-/// Starts an event stream, which [`event`] then writes into.
-fn begin_stream(stream: &mut TcpStream) -> std::io::Result<()> {
-    write!(
-        stream,
-        "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n\
-         Cache-Control: no-store\r\nConnection: close\r\n\r\n"
-    )?;
-    stream.flush()
-}
-
-/// Writes one server-sent event: a single line of JSON, flushed at once so the page sees
-/// each token as the board produces it.
-fn event(stream: &mut TcpStream, payload: &Value) -> std::io::Result<()> {
-    write!(stream, "data: {payload}\n\n")?;
-    stream.flush()
-}
-
-/// Pulls `{"message": ..., "history": [...]}` out of a request body, with the limits
-/// applied. The history is the page's own record of the conversation.
-fn parse_body(body: &[u8]) -> anyhow::Result<(String, Vec<Value>)> {
-    let v: Value = serde_json::from_slice(body).map_err(|e| anyhow::anyhow!("bad JSON: {e}"))?;
-    let message = v["message"]
-        .as_str()
-        .ok_or_else(|| anyhow::anyhow!("no message"))?
-        .trim()
-        .to_string();
-    anyhow::ensure!(!message.is_empty(), "the message is empty");
-    anyhow::ensure!(
-        message.len() <= MAX_MESSAGE_BYTES,
-        "the message is {} bytes, over the {MAX_MESSAGE_BYTES} byte limit",
-        message.len()
-    );
-    let history = v["history"].as_array().cloned().unwrap_or_default();
-    anyhow::ensure!(
-        history.len() <= MAX_HISTORY_MESSAGES,
-        "the history has {} messages, over the {MAX_HISTORY_MESSAGES} message limit",
-        history.len()
-    );
-    // Keep only what the template needs, so a client cannot inject other fields.
-    //
-    // The tool exchange has to survive the round trip. Without it the model sees a past turn
-    // where it answered a weather question without ever calling a tool, concludes it has no
-    // such tool, and refuses the next one.
-    let history: Vec<Value> = history
-        .iter()
-        .filter_map(|m| match m["role"].as_str()? {
-            role @ ("user" | "assistant") if m["content"].is_string() => {
-                Some(json!({"role": role, "content": m["content"].as_str()?}))
-            }
-            "assistant" => {
-                let calls: Vec<Value> = m["tool_calls"]
-                    .as_array()?
-                    .iter()
-                    .filter_map(|c| {
-                        let f = c.get("function")?;
-                        Some(json!({"type": "function", "function": {
-                            "name": f["name"].as_str()?, "arguments": f["arguments"].clone(),
-                        }}))
-                    })
-                    .collect();
-                (!calls.is_empty()).then(|| json!({"role": "assistant", "tool_calls": calls}))
-            }
-            "tool" => Some(json!({
-                "role": "tool", "name": m["name"].as_str()?, "content": m["content"].clone(),
-            })),
-            _ => None,
-        })
-        .collect();
-    // A `tool` message with nothing to answer confuses the template, so drop any that lost
-    // its call to trimming.
-    let mut pruned: Vec<Value> = Vec::with_capacity(history.len());
-    for m in history {
-        let orphan = m["role"] == "tool"
-            && !matches!(pruned.last(), Some(p) if p["tool_calls"].is_array() || p["role"] == "tool");
-        if !orphan {
-            pruned.push(m);
-        }
-    }
-    Ok((message, pruned))
-}
-
-/// Runs one conversation turn, streaming events to the browser: the model's reply, and if
-/// it calls `get_weather`, the call, the result and the reply it then gives.
-fn handle_chat(
-    engine: &mut Engine<'_>,
-    system: &Option<String>,
-    body: &[u8],
-    stream: &mut TcpStream,
-) -> anyhow::Result<()> {
-    let (message, history) = parse_body(body)?;
-    let tools = json!([tools::declaration()]);
-
-    let mut messages: Vec<Value> = Vec::new();
-    if let Some(system) = system {
-        messages.push(json!({"role": "system", "content": system}));
-    }
-    messages.extend(history);
-    messages.push(json!({"role": "user", "content": message}));
-
-    // Up to this many tool rounds before we stop and show whatever the model last said,
-    // so a model that keeps calling the tool cannot hold the board forever.
-    const MAX_ROUNDS: usize = 3;
-
-    let mut raw;
-    let mut stats;
-    let (mut used, mut total);
-    let mut round = 0;
-    // The last reading the tool returned, kept to check the model's words against.
-    let mut reading: Option<Value> = None;
-    loop {
-        let (text, s) = engine.reply(&json!(messages), &tools, |piece| {
-            event(stream, &json!({"type": "token", "text": piece}))?;
-            Ok(())
-        })?;
-        raw = text;
-        stats = s;
-        used = engine.session.cache.len();
-        total = engine.session.cache.capacity();
-
-        let calls = parse_calls(&raw)?;
-        if calls.is_empty() || round == MAX_ROUNDS {
-            break;
-        }
-        round += 1;
-
-        // The model's turn was the call itself, so it goes back as `tool_calls` rather
-        // than as text, and each result as a `tool` message. This is the shape the chat
-        // template expects; anything else and the model just calls the tool again.
-        let tool_calls: Vec<Value> = calls
-            .iter()
-            .map(|c| {
-                let name = if c.name.is_empty() {
-                    "get_weather"
-                } else {
-                    c.name.as_str()
-                };
-                json!({"type": "function", "function": {"name": name, "arguments": c.args}})
-            })
-            .collect();
-        messages.push(json!({"role": "assistant", "tool_calls": tool_calls}));
-
-        for call in &calls {
-            let args = &call.args;
-            // An empty name means the model called without saying what. Only one function is
-            // declared, so there is no ambiguity about which it meant.
-            let name = if call.name.is_empty() {
-                "get_weather"
-            } else {
-                call.name.as_str()
-            };
-            event(
-                stream,
-                &json!({"type": "tool_call", "name": name, "args": args}),
-            )?;
-            let result = if name == "get_weather" {
-                let city = args["city"].as_str().unwrap_or_default().to_string();
-                let mut w =
-                    tools::weather(&city).unwrap_or_else(|e| json!({"error": e.to_string()}));
-                // The model drops syllables: "Novosibirsk" went out as "Novibirsk". When no
-                // such place exists, try the name the visitor actually typed, which is better
-                // evidence of what was meant than the model's transcription of it.
-                if w["error"]
-                    .as_str()
-                    .is_some_and(|e| e.starts_with("no place called"))
-                    && let Some(meant) = tools::nearest_from(&message, &city)
-                    && let Ok(second) = tools::weather(&meant)
-                {
-                    w = second;
-                    // Say so, rather than quietly answering about somewhere else.
-                    w["asked_for"] = json!(city);
-                }
-                reading = Some(w.clone());
-                w
-            } else {
-                // Only the weather tool is declared, so this is the model inventing one.
-                json!({"error": format!("no tool called {name}")})
-            };
-            event(
-                stream,
-                &json!({"type": "tool_result", "name": name, "result": result}),
-            )?;
-            // The browser got the whole result above, scene and all; the model gets the
-            // visitor-facing fields only.
-            messages.push(json!({
-                "role": "tool", "name": name,
-                "content": tools::model_view(&result),
-            }));
-        }
-        event(stream, &json!({"type": "reply_start"}))?;
-    }
-
-    // A reply that was nothing but a tool call leaves the visitor with no words at all.
-    let words = speech(&raw);
-    if words.is_empty() {
-        // The model meant to call something and the parser would not have it. Nothing of this
-        // reaches the browser, because the markup is special tokens that decode to nothing,
-        // so without this line the failure is invisible and unfixable.
-        eprintln!(
-            "unparsable reply ({} bytes): {:?}",
-            raw.len(),
-            truncate(&raw, 400)
-        );
-        event(
-            stream,
-            &json!({"type": "token",
-                    "text": "I looked that up, but could not put it into words."}),
-        )?;
-    } else if reading
-        .as_ref()
-        .is_some_and(|r| tools::contradicts(&words, r) || tools::misquotes(&words, r))
-    {
-        // The words have already been streamed, so the browser is told to take them back.
-        // The reading itself stands: it is the part that was never in doubt.
-        event(stream, &json!({"type": "retract"}))?;
-    }
-    event(
-        stream,
-        &json!({"type": "done", "stats": stats.to_json(used, total)}),
-    )?;
-    Ok(())
 }
 
 fn demo_tools() -> Value {
@@ -694,7 +318,11 @@ fn terminal_reply(
     println!();
     eprintln!(
         "{}",
-        stats.report(engine.session.cache.len(), engine.session.cache.capacity())
+        report(
+            &stats,
+            engine.session.cache.len(),
+            engine.session.cache.capacity()
+        )
     );
     Ok(reply)
 }
@@ -704,10 +332,6 @@ fn main() -> anyhow::Result<()> {
     anyhow::ensure!(
         args.mode == Mode::Tool || args.prompt.is_none(),
         "--prompt is for --mode tool; in chat mode, type the request at the prompt"
-    );
-    anyhow::ensure!(
-        args.mode != Mode::Serve || args.tools.is_none(),
-        "--tools is for --mode chat and tool; serve offers only the weather tool"
     );
     // The modes below are FunctionGemma's: its chat template, tools and step graphs.
     anyhow::ensure!(
@@ -719,10 +343,9 @@ fn main() -> anyhow::Result<()> {
     let parameters = args.model.parameter_count(&model_dir)?;
     let cfg = GemmaConfig::load(&model_dir.join("config.json"))?;
     let chat = Chat::load(&model_dir)?;
-    let tools: Value = match (&args.tools, args.mode) {
-        (_, Mode::Serve) => json!([tools::declaration()]),
-        (Some(p), _) => serde_json::from_str(&std::fs::read_to_string(p)?)?,
-        (None, _) => demo_tools(),
+    let tools: Value = match &args.tools {
+        Some(p) => serde_json::from_str(&std::fs::read_to_string(p)?)?,
+        None => demo_tools(),
     };
     let mut stop = cfg.eos_token_id.ids();
     // <eos>, <start_function_response>, <end_of_turn>.
@@ -799,107 +422,7 @@ fn main() -> anyhow::Result<()> {
             }
             Ok(())
         }
-        Mode::Serve => serve(&mut engine, &args),
     }
-}
-
-/// The weather web demo of `serve` mode: answers HTTP requests until the process is
-/// stopped.
-fn serve(engine: &mut Engine<'_>, args: &Args) -> anyhow::Result<()> {
-    let listener = TcpListener::bind(&args.listen)?;
-    let public = args
-        .public_url
-        .clone()
-        .unwrap_or(format!("http://{}", args.listen));
-    println!("listening on {} ({})", args.listen, public);
-
-    // One reply at a time: the model is a single set of weights and one KV cache. A second
-    // visitor is told the board is busy rather than made to wait behind an unknown queue.
-    let busy = AtomicBool::new(false);
-
-    for stream in listener.incoming() {
-        let mut stream = match stream {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("accept failed: {e}");
-                continue;
-            }
-        };
-        let request = {
-            let mut reader = BufReader::new(&stream);
-            match read_request(&mut reader) {
-                Ok(Some(r)) => r,
-                Ok(None) => continue,
-                Err(e) => {
-                    let body = json!({"error": e.to_string()}).to_string();
-                    let _ = respond(
-                        &mut stream,
-                        "400 Bad Request",
-                        "application/json",
-                        body.as_bytes(),
-                    );
-                    continue;
-                }
-            }
-        };
-
-        match (request.method.as_str(), request.path.as_str()) {
-            ("GET", "/") | ("GET", "/index.html") => {
-                let page = INDEX_HTML
-                    .replace("{{BOARD}}", &args.board)
-                    .replace("{{PUBLIC_URL}}", &public);
-                let _ = respond(
-                    &mut stream,
-                    "200 OK",
-                    "text/html; charset=utf-8",
-                    page.as_bytes(),
-                );
-            }
-            ("GET", "/api/health") => {
-                let body = json!({
-                    "status": "ok",
-                    "board": args.board,
-                    "busy": busy.load(Ordering::SeqCst),
-                })
-                .to_string();
-                let _ = respond(&mut stream, "200 OK", "application/json", body.as_bytes());
-            }
-            ("POST", "/api/chat") => {
-                if busy.swap(true, Ordering::SeqCst) {
-                    let body = json!({"error": "the board is answering someone else; try again in a moment"})
-                        .to_string();
-                    let _ = respond(
-                        &mut stream,
-                        "503 Service Unavailable",
-                        "application/json",
-                        body.as_bytes(),
-                    );
-                    continue;
-                }
-                let result = begin_stream(&mut stream)
-                    .map_err(anyhow::Error::from)
-                    .and_then(|()| handle_chat(engine, &args.system, &request.body, &mut stream));
-                if let Err(e) = result {
-                    eprintln!("chat failed: {e}");
-                    let _ = event(
-                        &mut stream,
-                        &json!({"type": "error", "message": e.to_string()}),
-                    );
-                }
-                busy.store(false, Ordering::SeqCst);
-            }
-            _ => {
-                let body = json!({"error": "not found"}).to_string();
-                let _ = respond(
-                    &mut stream,
-                    "404 Not Found",
-                    "application/json",
-                    body.as_bytes(),
-                );
-            }
-        }
-    }
-    Ok(())
 }
 
 /// The interactive conversation of `chat` mode.

@@ -40,8 +40,8 @@ cargo run --release -p teeny-llm --example chat -- --model functiongemma3   # we
 Loaded through `Model::load`, the models are served by `teeny-api`
 (built with the model's feature: `--features functiongemma3,cuda`). The `chat`
 example drives FunctionGemma directly: `--mode chat` (the default) in the terminal,
-`--mode tool --prompt ...` for the function calls it picks for one request, or `--mode serve`
-for the weather web demo in a browser.
+or `--mode tool --prompt ...` for the function calls it picks for one request. For a browser,
+run teeny-api with teeny-webapp.
 
 ## License
 
