@@ -33,7 +33,7 @@
 use super::runner::checkpoint_name;
 use super::kernels::expert_gemv_nvfp4::{ROWS, interleave_row_bytes, interleave_rows};
 use super::weights::{Checkpoint, Encoding, pack_rows};
-use crate::kernels::linear::{interleave_lanes, pack_bf16_halves};
+use crate::kernels::linear::{interleave_lanes, pack_bf16_halves, quantize_lanes_i8};
 
 /// What a slot needs from the checkpoint.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -67,6 +67,9 @@ pub enum Source {
     /// [`Source::PackedBf16`], then interleaved by blocks of output features for
     /// [`crate::kernels::linear::LinearLanesBf16Op`]. The `.weight_lanes` slots.
     LanesBf16(Box<Source>),
+    /// Read what the inner source reads, then quantise it to int8 per output row
+    /// for [`crate::kernels::linear::LinearLanesI8Op`]. The `.weight_i8` slots.
+    LanesI8(Box<Source>),
 }
 
 /// Where each slot of a layer comes from.
@@ -82,6 +85,9 @@ fn resolve_slot(slot: &str, layer: usize) -> Source {
     // A packed bf16 weight reads whatever the plain `.weight` slot would.
     if let Some(base) = slot.strip_suffix("_bf16").filter(|b| b.ends_with(".weight")) {
         return Source::PackedBf16(Box::new(resolve_slot(base, layer)));
+    }
+    if let Some(stem) = slot.strip_suffix(".weight_i8") {
+        return Source::LanesI8(Box::new(resolve_slot(&format!("{stem}.weight"), layer)));
     }
     if let Some(stem) = slot.strip_suffix(".weight_lanes") {
         return Source::LanesBf16(Box::new(resolve_slot(&format!("{stem}.weight"), layer)));
@@ -151,7 +157,9 @@ fn missing_tensor(ck: &Checkpoint, src: &Source) -> Option<String> {
                 None
             }
         }
-        Source::PackedBf16(inner) | Source::LanesBf16(inner) => missing_tensor(ck, inner),
+        Source::PackedBf16(inner) | Source::LanesBf16(inner) | Source::LanesI8(inner) => {
+            missing_tensor(ck, inner)
+        }
     }
 }
 
@@ -201,6 +209,15 @@ fn read_source(
             let values = read_source(ck, slot, inner, declared)?;
             pack_bf16_halves(&values, declared[0], declared[1] * 2)
                 .map_err(|e| anyhow::anyhow!("slot {slot}: {e}"))?
+        }
+        Source::LanesI8(inner) => {
+            anyhow::ensure!(
+                declared.len() == 2 && declared[1] >= 1,
+                "slot {slot} is declared {declared:?}, expected [rows, words + 1]"
+            );
+            let (n, k) = (declared[0], (declared[1] - 1) * 4);
+            let values = read_source(ck, slot, inner, &[n, k])?;
+            quantize_lanes_i8(&values, n, k).map_err(|e| anyhow::anyhow!("slot {slot}: {e}"))?
         }
         Source::LanesBf16(inner) => {
             anyhow::ensure!(

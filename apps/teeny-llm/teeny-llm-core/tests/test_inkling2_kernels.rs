@@ -53,7 +53,8 @@ use teeny_llm_core::models::inkling2::kernels::{
     swiglu::SwigluOp,
 };
 use teeny_llm_core::kernels::linear::{
-    Linear4Bf16Op, Linear4Op, LinearLanesBf16Op, interleave_lanes, pack_bf16_halves,
+    Linear4Bf16Op, Linear4Op, LinearLanesBf16Op, LinearLanesI8Op, interleave_lanes, pack_bf16_halves,
+    quantize_lanes_i8,
 };
 use teeny_llm_core::models::inkling2::weights::{Checkpoint, pack_rows};
 use teeny_test::model::{RuntimeModel, runtime};
@@ -2305,6 +2306,28 @@ fn test_lanes_linear_matches_the_f32_linear_at_any_row_count() {
         let want = OneOp::new(&[m, k]).run(Linear4Op::<f32>::new(k, n, 16), &[], &[&x], &[&w]);
         let got = OneOp::new(&[m, k]).run(LinearLanesBf16Op::<f32>::new(k, n), &[], &[&x], &[&lanes]);
         assert_close(&format!("lanes linear, {m} rows"), &got, &want, 1e-5);
+    }
+}
+
+/// The int8 lanes linear computes exactly what the f32 linear does on the weights
+/// its quantisation produces, at every row count a tile can leave.
+#[test]
+fn test_int8_lanes_linear_matches_the_f32_linear_on_dequantised_weights() {
+    let (k, n) = (96usize, 48usize);
+    let w = values(n * k, 621);
+    let buf = quantize_lanes_i8(&w, n, k).expect("int8 quantise");
+    // What the kernel should see: each weight rounded to its row's int8 grid.
+    let scales = &buf[n * k / 4..];
+    let deq: Vec<f32> = w
+        .chunks(k)
+        .zip(scales)
+        .flat_map(|(row, &s)| row.iter().map(move |v| (v / s).round() * s))
+        .collect();
+    for m in [1usize, 2, 4, 5] {
+        let x = values(m * k, 622 + m as u64);
+        let want = OneOp::new(&[m, k]).run(Linear4Op::<f32>::new(k, n, 16), &[], &[&x], &[&deq]);
+        let got = OneOp::new(&[m, k]).run(LinearLanesI8Op::<f32>::new(k, n), &[], &[&x], &[&buf]);
+        assert_close(&format!("int8 lanes linear, {m} rows"), &got, &want, 1e-5);
     }
 }
 
